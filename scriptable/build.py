@@ -20,8 +20,8 @@ def main() -> None:
     # テンプレートリテラル内でバッククォートとドル記号をエスケープ
     html_escaped = html_content.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
 
-    # テンプレート読み込み
-    template_path = root / "4ColorDither.js"
+    # テンプレート読み込み（src/scriptable-entry.js をソースとして使用）
+    template_path = root / "src" / "scriptable-entry.js"
     template = template_path.read_text(encoding="utf-8")
 
     # __HTML_CONTENT__ を置換

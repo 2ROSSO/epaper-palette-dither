@@ -616,21 +616,42 @@ function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
   };
 
   function showOriginal() {
+    let srcW = sourceImage.width, srcH = sourceImage.height;
+
+    // 縦長画像 + 横長ターゲット → 自動90° CW回転
+    const needsRotate = (srcH > srcW) && (targetW > targetH);
+
+    if (needsRotate) {
+      // 回転後の論理サイズ
+      srcW = sourceImage.height;
+      srcH = sourceImage.width;
+    }
+
     // Resize to target while maintaining aspect ratio
-    const scale = Math.min(targetW / sourceImage.width, targetH / sourceImage.height);
-    const w = Math.round(sourceImage.width * scale);
-    const h = Math.round(sourceImage.height * scale);
+    const scale = Math.min(targetW / srcW, targetH / srcH);
+    const w = Math.round(srcW * scale);
+    const h = Math.round(srcH * scale);
 
     origCanvas.width = w;
     origCanvas.height = h;
-    origCtx.drawImage(sourceImage, 0, 0, w, h);
+
+    if (needsRotate) {
+      origCtx.save();
+      origCtx.translate(w, 0);
+      origCtx.rotate(Math.PI / 2);
+      origCtx.drawImage(sourceImage, 0, 0, h, w);
+      origCtx.restore();
+    } else {
+      origCtx.drawImage(sourceImage, 0, 0, w, h);
+    }
 
     ditherCanvas.width = w;
     ditherCanvas.height = h;
     ditherCtx.fillStyle = '#222';
     ditherCtx.fillRect(0, 0, w, h);
 
-    infoEl.textContent = `${sourceImage.width}x${sourceImage.height} → ${w}x${h}`;
+    const rotateLabel = needsRotate ? ' (rotated)' : '';
+    infoEl.textContent = `${sourceImage.width}x${sourceImage.height} → ${w}x${h}${rotateLabel}`;
     saveBtn.disabled = true;
     resultBase64 = null;
   }
