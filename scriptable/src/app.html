@@ -218,24 +218,24 @@
   <div class="control-row">
     <span class="control-label">Target:</span>
     <div class="segmented" id="presetBtns">
-      <button data-w="296" data-h="128" class="active">2.9"</button>
-      <button data-w="400" data-h="300">4.2"</button>
+      <button data-w="296" data-h="128">2.9"</button>
+      <button data-w="400" data-h="300" class="active">4.2"</button>
     </div>
   </div>
 
   <div class="control-row">
     <span class="control-label">Color:</span>
     <div class="segmented" id="colorBtns">
-      <button data-mode="grayout" class="active">Gray</button>
+      <button data-mode="grayout">Gray</button>
       <button data-mode="antisat">AntiSat</button>
       <button data-mode="centroid">Cent</button>
-      <button data-mode="illuminant">Illum</button>
+      <button data-mode="illuminant" class="active">Illum</button>
     </div>
   </div>
 </div>
 
 <!-- Grayout strength (only for Grayout mode) -->
-<div class="control-section" id="strengthSection">
+<div class="control-section" id="strengthSection" style="display:none">
   <div class="control-row">
     <span class="control-label">Strength:</span>
     <input type="range" id="strengthSlider" min="0" max="100" value="70">
@@ -244,7 +244,7 @@
 </div>
 
 <!-- Illuminant params (only for Illuminant mode) -->
-<div class="control-section" id="illuminantSection" style="display:none">
+<div class="control-section" id="illuminantSection">
   <div class="control-row">
     <span class="control-label">Red:</span>
     <input type="range" id="illumRedSlider" min="0" max="100" value="100">
@@ -526,8 +526,8 @@ function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
 (function() {
   // State
   let sourceImage = null;       // HTMLImageElement (original)
-  let targetW = 296, targetH = 128;
-  let colorMode = 'grayout';
+  let targetW = 400, targetH = 300;
+  let colorMode = 'illuminant';
   let resultBase64 = null;
 
   // DOM refs
