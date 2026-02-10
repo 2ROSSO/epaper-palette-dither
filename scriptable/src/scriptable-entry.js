@@ -1,5 +1,10 @@
-// 4ColorDither.js — Scriptable entry point
-// E-Ink 4色ディザリング for iPhone
+// Variables used by Scriptable.
+// These must be at the very top of the file. Do not edit.
+// icon-color: deep-brown; icon-glyph: palette;
+// share-sheet-inputs: file-url, image;
+// always-run-in-app: true;
+
+// 4ColorDither.js — E-Ink 4色ディザリング for iPhone
 //
 // Usage:
 //   1. Scriptableアプリで直接実行 → フォトライブラリから選択
@@ -9,8 +14,13 @@
 // ===== 1. 画像取得 =====
 let img;
 if (args.images && args.images.length > 0) {
+  // 共有シート / Shortcuts から Image として受け取り
   img = args.images[0];
+} else if (args.fileURLs && args.fileURLs.length > 0) {
+  // 共有シートから File URL として受け取り
+  img = Image.fromFile(args.fileURLs[0]);
 } else {
+  // 直接実行: フォトライブラリから選択
   img = await Photos.fromLibrary();
 }
 
