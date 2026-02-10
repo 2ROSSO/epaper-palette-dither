@@ -15,6 +15,14 @@
 - **`pr/<feature>`**: PR用クリーンブランチ。wip完了後に機能単位の段階的コミットで再構成
 - wip/ブランチ完成時（pr/ブランチ作成直前）にテスト全通過を必須とする
 - pr/ブランチの各コミットもテスト通過を必須条件とする
+- **wip/ブランチは原則リモートにpushしない**（ローカル作業専用）。pushするのは pr/ブランチのみ
+- wip/ブランチは作業の区切りごとに `wip2/`, `wip3/` ... とナンバリングを繰り上げて新ブランチを作成する。前のwipブランチはローカルのスナップショットとして残す
+
+## マージルール
+- **mainへの直接マージは禁止**。必ず pr/ ブランチからPR経由でマージする
+- pr/ ブランチ完成後、mainへのマージ前にユーザーが手動で動作確認を行う
+- ユーザーの動作確認・承認後にのみ、mainへのマージPRを作成できる
+- マージ手順: wip/ → pr/（テスト全通過）→ ユーザー動作確認 → main へPR
 
 ## コミットルール
 - wip/: 頻繁に小さくコミット（セーブポイント重視）
@@ -38,6 +46,10 @@
 - 機能実装の際は plan モードを必須とする
 - GUIや3次元的な機能の指示出し時は、プラン段階でアスキーアートによる概略図を提示する
 
+## GitHub リポジトリ
+- プロジェクト開始時にリモートリポジトリを作成し、初期コミットを push すること
+- リポジトリは **private** で作成する（`gh repo create --private`）
+
 ## ドキュメント・プロジェクト管理
 - pr/ブランチ完了ごとに README.md および CLAUDE.md を更新する
 - 機能追加依頼はタスク分解し、GitHub Issue として登録する
@@ -46,11 +58,27 @@
 ## プロジェクト構成
 ```
 src/four_color_dither/
-├── domain/          # ドメイン層（Pure Python、外部依存なし）
-├── application/     # アプリケーション層（ユースケース）
-├── infrastructure/  # インフラ層（Pillow, NumPy, ファイルI/O）
-└── presentation/    # プレゼンテーション層（PyQt6 GUI）
+├── domain/               # ドメイン層（Pure Python、外部依存なし）
+│   ├── color.py              # RGB, EINK_PALETTE, CIEDE2000, find_nearest_color
+│   ├── dithering.py          # Floyd-Steinberg 誤差拡散
+│   └── image_model.py        # ColorMode(enum), DisplayPreset, ImageSpec
+├── application/          # アプリケーション層（ユースケース）
+│   ├── dither_service.py     # DitherService（ディザリング実行、ErrClamp/RedPen/YellowPen対応）
+│   └── image_converter.py    # ImageConverter（リサイズ→色処理→ディザ パイプライン、品質パラメータ管理）
+├── infrastructure/       # インフラ層（Pillow, NumPy, ファイルI/O）
+│   ├── color_space.py        # RGB⇔Lab バッチ変換
+│   ├── gamut_mapping.py      # gamut_map, anti_saturate, anti_saturate_centroid, apply_illuminant
+│   └── image_io.py           # load/save/resize/rotate
+└── presentation/         # プレゼンテーション層（PyQt6 GUI）
+    ├── controls.py           # ControlPanel（モード選択, パラメータ, ボタン）
+    ├── image_viewer.py       # ImageViewer（D&D対応画像表示）
+    └── main_window.py        # MainWindow（左右並列ビューア + ワーカー）
 ```
+
+## 主要な型・列挙
+- `ColorMode`: Grayout / Anti-Saturation / Centroid Clip / Illuminant
+- `DisplayPreset`: Santek 2.9" (296×128) / 4.2" (400×300)
+- `ImageSpec`: target_width, target_height, keep_aspect_ratio, orientation_landscape
 
 ## コマンド
 - テスト実行: `uv run pytest`

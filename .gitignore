@@ -30,3 +30,9 @@ htmlcov/
 
 # uv
 # uv.lock is committed (per project rules)
+
+# Data / Outputs
+data/outputs/
+
+# Reference repositories
+arrayfy_repo/
