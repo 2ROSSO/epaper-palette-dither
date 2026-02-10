@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>4-Color Dither — JS Test Runner</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Consolas', monospace; font-size: 14px; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  h1 { color: #e94560; margin-bottom: 16px; font-size: 20px; }
+  h2 { color: #0f3460; background: #e94560; display: inline-block; padding: 4px 12px; margin: 16px 0 8px; font-size: 14px; }
+  .summary { padding: 12px; margin-bottom: 16px; border-radius: 4px; font-weight: bold; font-size: 16px; }
+  .summary.pass { background: #0a3d0a; color: #4caf50; border: 1px solid #4caf50; }
+  .summary.fail { background: #3d0a0a; color: #f44336; border: 1px solid #f44336; }
+  .test { padding: 4px 8px; margin: 2px 0; border-radius: 2px; }
+  .test.pass { background: #0a2d0a; }
+  .test.fail { background: #2d0a0a; }
+  .pass .marker { color: #4caf50; }
+  .fail .marker { color: #f44336; }
+  .detail { color: #888; font-size: 12px; margin-left: 20px; }
+</style>
+</head>
+<body>
+<h1>4-Color Dither — JS Test Runner</h1>
+<div id="summary" class="summary">Running...</div>
+<div id="results"></div>
+
+<!-- Load modules -->
+<script src="../src/color.js"></script>
+<script src="../src/gamut-mapping.js"></script>
+<script src="../src/dithering.js"></script>
+
+<script>
+const EPS = 0.5;        // 整数RGB値用の許容誤差
+const EPS_FLOAT = 0.01; // 浮動小数点用の許容誤差
+
+let totalPass = 0;
+let totalFail = 0;
+const resultsEl = document.getElementById('results');
+
+function addSection(title) {
+  const h = document.createElement('h2');
+  h.textContent = title;
+  resultsEl.appendChild(h);
+}
+
+function addResult(name, pass, detail) {
+  if (pass) totalPass++; else totalFail++;
+  const div = document.createElement('div');
+  div.className = 'test ' + (pass ? 'pass' : 'fail');
+  div.innerHTML = `<span class="marker">${pass ? 'PASS' : 'FAIL'}</span> ${name}`;
+  if (detail && !pass) {
+    div.innerHTML += `<div class="detail">${detail}</div>`;
+  }
+  resultsEl.appendChild(div);
+}
+
+function approxEqual(a, b, eps) {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return Math.abs(a - b) <= eps;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => approxEqual(v, b[i], eps));
+  }
+  // Deep array (2D, 3D)
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function approxEqualDeep(a, b, eps) {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return Math.abs(a - b) <= eps;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => approxEqualDeep(v, b[i], eps));
+  }
+  return a === b;
+}
+
+async function loadVectors() {
+  const resp = await fetch('test-vectors.json');
+  return resp.json();
+}
+
+function testColorModule(vectors) {
+  addSection('color.js — rgbToLab');
+  for (const tc of vectors.rgbToLab) {
+    const [r, g, b] = tc.input;
+    const result = rgbToLab(r, g, b);
+    const pass = approxEqual(result, tc.expected, EPS_FLOAT);
+    addResult(
+      `rgbToLab(${r}, ${g}, ${b})`,
+      pass,
+      `expected: [${tc.expected.map(v => v.toFixed(4))}], got: [${result.map(v => v.toFixed(4))}]`
+    );
+  }
+
+  addSection('color.js — ciede2000');
+  for (const tc of vectors.ciede2000) {
+    const lab1 = rgbToLab(...tc.input1);
+    const lab2 = rgbToLab(...tc.input2);
+    const result = ciede2000(lab1, lab2);
+    const pass = approxEqual(result, tc.expected, EPS_FLOAT);
+    addResult(
+      `ciede2000(${JSON.stringify(tc.input1)}, ${JSON.stringify(tc.input2)})`,
+      pass,
+      `expected: ${tc.expected.toFixed(6)}, got: ${result.toFixed(6)}`
+    );
+  }
+
+  addSection('color.js — findNearestColor');
+  for (const tc of vectors.findNearestColor) {
+    const [r, g, b] = tc.input;
+    const result = findNearestColor(r, g, b, EINK_PALETTE, tc.redPenalty, tc.yellowPenalty, tc.brightness);
+    const pass = approxEqual(result, tc.expected, EPS);
+    addResult(
+      `findNearestColor(${r},${g},${b} pen=${tc.redPenalty}/${tc.yellowPenalty} br=${tc.brightness})`,
+      pass,
+      `expected: [${tc.expected}], got: [${result}]`
+    );
+  }
+}
+
+function testGamutModule(vectors) {
+  if (typeof gamutMapGrayout === 'undefined') return;
+
+  // Helper: 3D array → ImageData-like (flat RGBA Uint8ClampedArray + width/height)
+  function arrayToImageData(arr3d) {
+    const h = arr3d.length;
+    const w = arr3d[0].length;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        data[idx]     = arr3d[y][x][0];
+        data[idx + 1] = arr3d[y][x][1];
+        data[idx + 2] = arr3d[y][x][2];
+        data[idx + 3] = 255;
+      }
+    }
+    return { data, width: w, height: h };
+  }
+
+  function imageDataToArray(imgData) {
+    const { data, width, height } = imgData;
+    const result = [];
+    for (let y = 0; y < height; y++) {
+      const row = [];
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        row.push([data[idx], data[idx+1], data[idx+2]]);
+      }
+      result.push(row);
+    }
+    return result;
+  }
+
+  // Grayout tests
+  for (const strength of [0.5, 0.7, 1.0]) {
+    const key = `grayout_${strength}`;
+    const tc = vectors[key];
+    if (!tc) continue;
+
+    addSection(`gamut-mapping.js — Grayout (strength=${strength})`);
+    const imgData = arrayToImageData(tc.input);
+    const result = gamutMapGrayout(imgData, strength);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 1);
+    addResult(
+      `gamutMapGrayout(3x3, ${strength})`,
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+
+  // Anti-Saturate
+  if (vectors.antiSaturate) {
+    addSection('gamut-mapping.js — Anti-Saturate');
+    const tc = vectors.antiSaturate;
+    const imgData = arrayToImageData(tc.input);
+    const result = antiSaturate(imgData, EINK_PALETTE);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 1);
+    addResult(
+      'antiSaturate(3x3)',
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+
+  // Centroid Clip
+  if (vectors.centroidClip) {
+    addSection('gamut-mapping.js — Centroid Clip');
+    const tc = vectors.centroidClip;
+    const imgData = arrayToImageData(tc.input);
+    const result = antiSaturateCentroid(imgData, EINK_PALETTE);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 1);
+    addResult(
+      'antiSaturateCentroid(3x3)',
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+
+  // Illuminant
+  for (const key of Object.keys(vectors)) {
+    if (!key.startsWith('illuminant_')) continue;
+    const tc = vectors[key];
+    addSection(`gamut-mapping.js — Illuminant (${key})`);
+    const imgData = arrayToImageData(tc.input);
+    const result = applyIlluminant(imgData, tc.rScale, tc.gScale, tc.bScale, tc.whitePreserve);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 1);
+    addResult(
+      `applyIlluminant(${key})`,
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+}
+
+function testDitherModule(vectors) {
+  if (typeof floydSteinbergDither === 'undefined') return;
+
+  function arrayToImageData(arr3d) {
+    const h = arr3d.length;
+    const w = arr3d[0].length;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        data[idx]     = arr3d[y][x][0];
+        data[idx + 1] = arr3d[y][x][1];
+        data[idx + 2] = arr3d[y][x][2];
+        data[idx + 3] = 255;
+      }
+    }
+    return { data, width: w, height: h };
+  }
+
+  function imageDataToArray(imgData) {
+    const { data, width, height } = imgData;
+    const result = [];
+    for (let y = 0; y < height; y++) {
+      const row = [];
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        row.push([data[idx], data[idx+1], data[idx+2]]);
+      }
+      result.push(row);
+    }
+    return result;
+  }
+
+  addSection('dithering.js — Floyd-Steinberg');
+
+  for (const [key, tc] of Object.entries(vectors)) {
+    const imgData = arrayToImageData(tc.input);
+    const result = floydSteinbergDither(imgData, EINK_PALETTE, tc.errorClamp, tc.redPenalty, tc.yellowPenalty);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, EPS);
+    addResult(
+      `floydSteinbergDither — ${key}`,
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+}
+
+async function run() {
+  try {
+    const vectors = await loadVectors();
+
+    testColorModule(vectors.color);
+    testGamutModule(vectors.gamut);
+    testDitherModule(vectors.dither);
+
+    const summaryEl = document.getElementById('summary');
+    const total = totalPass + totalFail;
+    if (totalFail === 0) {
+      summaryEl.className = 'summary pass';
+      summaryEl.textContent = `ALL ${total} TESTS PASSED`;
+    } else {
+      summaryEl.className = 'summary fail';
+      summaryEl.textContent = `${totalFail} FAILED / ${total} total`;
+    }
+  } catch (e) {
+    const summaryEl = document.getElementById('summary');
+    summaryEl.className = 'summary fail';
+    summaryEl.textContent = `ERROR: ${e.message}`;
+    console.error(e);
+  }
+}
+
+run();
+</script>
+</body>
+</html>
