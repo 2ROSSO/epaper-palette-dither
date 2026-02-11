@@ -21,12 +21,12 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
-from four_color_dither.application.dither_service import DitherService
-from four_color_dither.application.image_converter import ImageConverter
-from four_color_dither.domain.image_model import ImageSpec
-from four_color_dither.infrastructure.image_io import load_image, rotate_image_cw90, save_image
-from four_color_dither.presentation.image_viewer import ImageViewer
-from four_color_dither.presentation.controls import ControlPanel
+from epaper_palette_dither.application.dither_service import DitherService
+from epaper_palette_dither.application.image_converter import ImageConverter
+from epaper_palette_dither.domain.image_model import ImageSpec
+from epaper_palette_dither.infrastructure.image_io import load_image, rotate_image_cw90, save_image
+from epaper_palette_dither.presentation.image_viewer import ImageViewer
+from epaper_palette_dither.presentation.controls import ControlPanel
 
 
 class ConvertWorker(QThread):

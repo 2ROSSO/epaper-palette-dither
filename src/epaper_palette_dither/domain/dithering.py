@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence
 
-from four_color_dither.domain.color import RGB
+from epaper_palette_dither.domain.color import RGB
 
 
 class DitherAlgorithm(Protocol):
@@ -55,7 +55,7 @@ class FloydSteinbergDither:
         height: int,
         palette: Sequence[RGB],
     ) -> list[list[tuple[int, int, int]]]:
-        from four_color_dither.domain.color import find_nearest_color
+        from epaper_palette_dither.domain.color import find_nearest_color
 
         # 浮動小数点で作業用コピーを作成
         work: list[list[list[float]]] = [

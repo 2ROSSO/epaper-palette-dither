@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from four_color_dither.domain.color import EINK_PALETTE, RGB
-from four_color_dither.infrastructure.gamut_mapping import (
+from epaper_palette_dither.domain.color import EINK_PALETTE, RGB
+from epaper_palette_dither.infrastructure.gamut_mapping import (
     _build_tetrahedron_faces,
     _clip_via_centroid,
     _closest_point_on_triangle,

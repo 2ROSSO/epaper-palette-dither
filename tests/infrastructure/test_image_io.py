@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from four_color_dither.infrastructure.image_io import (
+from epaper_palette_dither.infrastructure.image_io import (
     load_image,
     resize_image,
     rotate_image_cw90,

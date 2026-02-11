@@ -1,7 +1,7 @@
 """dithering.py のテスト。"""
 
-from four_color_dither.domain.color import EINK_BLACK, EINK_PALETTE, EINK_WHITE, RGB
-from four_color_dither.domain.dithering import FloydSteinbergDither
+from epaper_palette_dither.domain.color import EINK_BLACK, EINK_PALETTE, EINK_WHITE, RGB
+from epaper_palette_dither.domain.dithering import FloydSteinbergDither
 
 
 class TestFloydSteinbergDither:

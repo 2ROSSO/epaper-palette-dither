@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
-from four_color_dither.domain.image_model import ColorMode, DisplayPreset
+from epaper_palette_dither.domain.image_model import ColorMode, DisplayPreset
 
 _GAMUT_STRENGTH_DEFAULT = 0.70
 _ILLUMINANT_RED_DEFAULT = 1.00

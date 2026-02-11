@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from four_color_dither.infrastructure.color_space import lab_to_rgb_batch, rgb_to_lab_batch
+from epaper_palette_dither.infrastructure.color_space import lab_to_rgb_batch, rgb_to_lab_batch
 
 
 class TestRgbToLabBatch:

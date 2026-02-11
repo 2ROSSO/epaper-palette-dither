@@ -5,11 +5,11 @@ from pathlib import Path
 
 import numpy as np
 
-from four_color_dither.application.dither_service import DitherService
-from four_color_dither.application.image_converter import ImageConverter
-from four_color_dither.domain.color import EINK_PALETTE
-from four_color_dither.domain.image_model import ColorMode, ImageSpec
-from four_color_dither.infrastructure.image_io import save_image
+from epaper_palette_dither.application.dither_service import DitherService
+from epaper_palette_dither.application.image_converter import ImageConverter
+from epaper_palette_dither.domain.color import EINK_PALETTE
+from epaper_palette_dither.domain.image_model import ColorMode, ImageSpec
+from epaper_palette_dither.infrastructure.image_io import save_image
 
 
 class TestDitherService:
