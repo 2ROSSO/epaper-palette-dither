@@ -839,8 +839,8 @@ if (result) {
   const resultImage = Image.fromData(imageData);
   await Photos.save(resultImage);
 
-  // Shortcuts対応
-  Script.setShortcutOutput(resultImage);
+  // Shortcuts対応（通常実行時はスキップ）
+  try { Script.setShortcutOutput(resultImage); } catch (e) {}
 }
 
 Script.complete();
