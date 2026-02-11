@@ -1,4 +1,4 @@
-# 4-Color Dither for E-Paper
+# E-Paper Palette Dither
 
 電子ペーパー（4色E-Ink: 白・黒・赤・黄）向けに、通常の画像をFloyd-Steinbergディザリングで変換するGUIアプリケーション。
 
@@ -17,7 +17,7 @@ uv sync
 ## 使い方
 
 ```bash
-uv run python -m four_color_dither
+uv run python -m epaper_palette_dither
 ```
 
 ## テスト
@@ -69,7 +69,7 @@ uv run pytest
 [Scriptable](https://apps.apple.com/app/scriptable/id1405459188) アプリを使ったiPhone版も利用可能。
 デスクトップ版と同一のアルゴリズムをJavaScriptで再実装。
 
-- `scriptable/4ColorDither.js` を Scriptable の Documents フォルダにコピーするだけで動作
+- `scriptable/EPaperPaletteDither.js` を Scriptable の Documents フォルダにコピーするだけで動作
 - 共有シート / Shortcuts からも起動可能
 - 詳細: [scriptable/README.md](scriptable/README.md)
 
@@ -90,7 +90,7 @@ uv run pytest
 ## プロジェクト構成
 
 ```
-src/four_color_dither/
+src/epaper_palette_dither/
 ├── domain/           # ドメイン層（Pure Python、外部依存なし）
 │   ├── color.py          # RGB, パレット定義, CIEDE2000色差
 │   ├── dithering.py      # Floyd-Steinberg誤差拡散
@@ -108,7 +108,7 @@ src/four_color_dither/
     └── main_window.py    # メインウィンドウ
 
 scriptable/                  # iPhone版 (Scriptable)
-├── 4ColorDither.js          # 配布用単一ファイル
+├── EPaperPaletteDither.js    # 配布用単一ファイル
 ├── build.py                 # ビルドスクリプト
 ├── src/                     # 開発用ソース
 │   ├── scriptable-entry.js  # Scriptableエントリポイント（テンプレート）

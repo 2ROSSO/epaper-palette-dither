@@ -1,4 +1,4 @@
-# 4-Color Dither for Scriptable (iPhone)
+# E-Paper Palette Dither for Scriptable (iPhone)
 
 Scriptable (iOS) の WebView を使った E-Ink 4色ディザリングアプリ。
 デスクトップ版（Python/PyQt6）と同一のアルゴリズムを JavaScript で再実装。
@@ -12,15 +12,15 @@ Scriptable (iOS) の WebView を使った E-Ink 4色ディザリングアプリ�
 ### インストール手順
 
 #### 方法1: iCloud Drive 経由（推奨）
-1. PC/Mac で `scriptable/4ColorDither.js` を iCloud Drive にコピー
-2. コピー先: `iCloud Drive/Scriptable/4ColorDither.js`
+1. PC/Mac で `scriptable/EPaperPaletteDither.js` を iCloud Drive にコピー
+2. コピー先: `iCloud Drive/Scriptable/EPaperPaletteDither.js`
 3. Scriptable アプリを開くとスクリプトが自動で表示される
 
 #### 方法2: コピー＆ペースト
 1. iPhone で Scriptable アプリを開く
 2. 右上の「+」で新規スクリプトを作成
-3. スクリプト名を `4ColorDither` に変更
-4. `scriptable/4ColorDither.js` の内容を全選択してペースト
+3. スクリプト名を `EPaperPaletteDither` に変更
+4. `scriptable/EPaperPaletteDither.js` の内容を全選択してペースト
 5. 右上の「Done」で保存
 
 ## 使い方
@@ -35,20 +35,20 @@ Scriptable (iOS) の WebView を使った E-Ink 4色ディザリングアプリ�
 
 #### Scriptable アプリから直接実行
 1. Scriptable アプリを開く
-2. `4ColorDither` をタップ
+2. `EPaperPaletteDither` をタップ
 3. フォトライブラリから画像を選択
 4. パラメータ調整 → Convert → Save
 
 #### 共有シートから起動
 1. 写真アプリや Safari 等で画像を表示
 2. 共有ボタン → 「Scriptable」を選択
-3. `4ColorDither` をタップ
+3. `EPaperPaletteDither` をタップ
 4. パラメータ調整 → Convert → Save
 
 #### Shortcuts（ショートカット）連携
 1. ショートカットアプリで新規ショートカットを作成
 2. 「Run Script」アクションを追加
-3. スクリプト名: `4ColorDither`
+3. スクリプト名: `EPaperPaletteDither`
 4. 入力に画像を渡すと自動処理
 5. 出力: ディザリング済み画像
 
@@ -96,7 +96,7 @@ E-Inkパレット（白・黒・赤・黄）の4色に変換する前に、元�
 
 ```
 scriptable/
-├── 4ColorDither.js              # 配布用（HTML埋め込み済み単一ファイル）
+├── EPaperPaletteDither.js              # 配布用（HTML埋め込み済み単一ファイル）
 ├── build.py                     # ビルドスクリプト
 ├── src/
 │   ├── scriptable-entry.js      # Scriptableエントリポイント（テンプレート）
@@ -119,7 +119,7 @@ scriptable/
 uv run python scriptable/build.py
 ```
 
-`src/scriptable-entry.js`（Scriptable API部分）と `src/app.html`（WebView UI + 全JSモジュール）を結合して `4ColorDither.js` を生成します。
+`src/scriptable-entry.js`（Scriptable API部分）と `src/app.html`（WebView UI + 全JSモジュール）を結合して `EPaperPaletteDither.js` を生成します。
 
 ### テスト
 

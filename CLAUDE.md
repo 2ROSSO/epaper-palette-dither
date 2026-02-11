@@ -57,7 +57,7 @@
 
 ## プロジェクト構成
 ```
-src/four_color_dither/
+src/epaper_palette_dither/
 ├── domain/               # ドメイン層（Pure Python、外部依存なし）
 │   ├── color.py              # RGB, EINK_PALETTE, CIEDE2000, find_nearest_color
 │   ├── dithering.py          # Floyd-Steinberg 誤差拡散
@@ -80,7 +80,7 @@ src/four_color_dither/
 ### 構成
 ```
 scriptable/
-├── 4ColorDither.js              # 配布用（HTML埋め込み済み単一ファイル）
+├── EPaperPaletteDither.js              # 配布用（HTML埋め込み済み単一ファイル）
 ├── build.py                     # ビルドスクリプト
 ├── src/
 │   ├── scriptable-entry.js      # Scriptableエントリポイント（テンプレート）
@@ -102,8 +102,8 @@ scriptable/
 
 ### 注意事項
 - Python実装の変更後は必ずテストベクトルを再生成し、JSテストの整合性を確認する
-- `src/app.html` 編集後は `build.py` で `4ColorDither.js` を再生成する
-- `4ColorDither.js` を直接編集しない（ビルド成果物）
+- `src/app.html` 編集後は `build.py` で `EPaperPaletteDither.js` を再生成する
+- `EPaperPaletteDither.js` を直接編集しない（ビルド成果物）
 
 ## 主要な型・列挙
 - `ColorMode`: Grayout / Anti-Saturation / Centroid Clip / Illuminant
@@ -112,6 +112,6 @@ scriptable/
 
 ## コマンド
 - テスト実行: `uv run pytest`
-- アプリ起動: `uv run python -m four_color_dither`
+- アプリ起動: `uv run python -m epaper_palette_dither`
 - Scriptableビルド: `uv run python scriptable/build.py`
 - Scriptableテストベクトル再生成: `uv run python scriptable/tests/generate-vectors.py`

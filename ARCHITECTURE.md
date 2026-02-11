@@ -61,7 +61,7 @@ infrastructure (Pillow, NumPy, ファイルI/O)
 ## ディレクトリ構造
 ```
 src/
-└── four_color_dither/
+└── epaper_palette_dither/
     ├── __init__.py
     ├── __main__.py
     ├── domain/
