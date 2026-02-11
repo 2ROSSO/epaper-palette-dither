@@ -381,6 +381,36 @@ function findNearestColor(r,g,b,palette,redPen,yellowPen,brightness) {
   } return best;
 }
 
+// --- sRGB→Linear LUT & Lab高速変換 ---
+const SRGB_TO_LINEAR_LUT=new Float64Array(256);
+for(let i=0;i<256;i++){const v=i/255;SRGB_TO_LINEAR_LUT[i]=v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);}
+const _LAB_DELTA=6/29,_LAB_DELTA_SQ3=_LAB_DELTA*_LAB_DELTA*_LAB_DELTA,_LAB_DELTA_SQ3_INV=1/(3*_LAB_DELTA*_LAB_DELTA),_LAB_OFFSET=4/29,_XN_INV=1/0.95047,_ZN_INV=1/1.08883;
+function rgbToLabFast(r,g,b){
+  const rL=SRGB_TO_LINEAR_LUT[r],gL=SRGB_TO_LINEAR_LUT[g],bL=SRGB_TO_LINEAR_LUT[b];
+  const xr=(0.4124564*rL+0.3575761*gL+0.1804375*bL)*_XN_INV,yr=0.2126729*rL+0.7151522*gL+0.0721750*bL,zr=(0.0193339*rL+0.1191920*gL+0.9503041*bL)*_ZN_INV;
+  const fx=xr>_LAB_DELTA_SQ3?Math.pow(xr,1/3):xr*_LAB_DELTA_SQ3_INV+_LAB_OFFSET;
+  const fy=yr>_LAB_DELTA_SQ3?Math.pow(yr,1/3):yr*_LAB_DELTA_SQ3_INV+_LAB_OFFSET;
+  const fz=zr>_LAB_DELTA_SQ3?Math.pow(zr,1/3):zr*_LAB_DELTA_SQ3_INV+_LAB_OFFSET;
+  return[116*fy-16,500*(fx-fy),200*(fy-fz)];
+}
+
+// --- LUT ---
+const LUT_STEP=4,LUT_SIZE=64;
+function buildDitherLut(palette){
+  palette=palette||EINK_PALETTE;const palLab=palette.map(c=>rgbToLabFast(c[0],c[1],c[2]));const nPal=palette.length;
+  const lut=new Uint8Array(LUT_SIZE*LUT_SIZE*LUT_SIZE);const half=LUT_STEP>>1;
+  for(let ri=0;ri<LUT_SIZE;ri++){const r=ri*LUT_STEP+half;for(let gi=0;gi<LUT_SIZE;gi++){const g=gi*LUT_STEP+half;for(let bi=0;bi<LUT_SIZE;bi++){const b=bi*LUT_STEP+half;
+    const lab=rgbToLabFast(r,g,b);const pL=lab[0],pa=lab[1],pb=lab[2];let bI=0,bD=Infinity;
+    for(let p=0;p<nPal;p++){const dL=pL-palLab[p][0],da=pa-palLab[p][1],db=pb-palLab[p][2],d=dL*dL+da*da+db*db;if(d<bD){bD=d;bI=p;}}
+    lut[ri*4096+gi*64+bi]=bI;}}}return lut;
+}
+function findNearestIndexLabEuclidean(r,g,b,palette,palLab,redPen,yellowPen,brightness){
+  const lab=rgbToLabFast(r,g,b);const pL=lab[0],pa=lab[1],pb=lab[2];let bI=0,bD=Infinity;
+  for(let i=0;i<palette.length;i++){const dL=pL-palLab[i][0],da=pa-palLab[i][1],db=pb-palLab[i][2];let d=Math.sqrt(dL*dL+da*da+db*db);
+    const p=palette[i];if(redPen>0&&p[0]>150&&p[1]<50&&p[2]<50)d+=redPen*brightness;if(yellowPen>0&&p[0]>200&&p[1]>200&&p[2]<50)d+=yellowPen*(1-brightness);
+    if(d<bD){bD=d;bI=i;}}return bI;
+}
+
 // ===== gamut-mapping.js =====
 const DEFAULT_HUE_TOLERANCE=60/360;
 
@@ -539,21 +569,23 @@ function applyIlluminant(imageData,rS,gS,bS,wP) {
 // ===== dithering.js =====
 function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
   palette=palette||EINK_PALETTE;errClamp=errClamp||0;redPen=redPen||0;yellowPen=yellowPen||0;
-  const{data,width,height}=imageData;
+  const{data,width,height}=imageData;const usePen=redPen>0||yellowPen>0;
   const work=new Float32Array(width*height*3);
   for(let i=0;i<width*height;i++){work[i*3]=data[i*4];work[i*3+1]=data[i*4+1];work[i*3+2]=data[i*4+2];}
+  const lut=buildDitherLut(palette);
+  const palLab=usePen?palette.map(c=>rgbToLabFast(c[0],c[1],c[2])):null;
   for(let y=0;y<height;y++){for(let x=0;x<width;x++){
     const idx=(y*width+x)*3;const oR=work[idx],oG=work[idx+1],oB=work[idx+2];
     const cr=Math.max(0,Math.min(255,Math.round(oR))),cg=Math.max(0,Math.min(255,Math.round(oG))),cb=Math.max(0,Math.min(255,Math.round(oB)));
-    let nr;if(redPen>0||yellowPen>0){const br=Math.max(0,Math.min(1,(0.2126*cr+0.7152*cg+0.0722*cb)/255));nr=findNearestColor(cr,cg,cb,palette,redPen,yellowPen,br);}
-    else nr=findNearestColor(cr,cg,cb,palette);
-    work[idx]=nr[0];work[idx+1]=nr[1];work[idx+2]=nr[2];
+    let pI;if(usePen){const br=Math.max(0,Math.min(1,(0.2126*cr+0.7152*cg+0.0722*cb)/255));pI=findNearestIndexLabEuclidean(cr,cg,cb,palette,palLab,redPen,yellowPen,br);}
+    else pI=lut[(cr>>2)*4096+(cg>>2)*64+(cb>>2)];
+    const nr=palette[pI];work[idx]=nr[0];work[idx+1]=nr[1];work[idx+2]=nr[2];
     let eR=oR-nr[0],eG=oG-nr[1],eB=oB-nr[2];
-    if(errClamp>0){eR=Math.max(-errClamp,Math.min(errClamp,eR));eG=Math.max(-errClamp,Math.min(errClamp,eG));eB=Math.max(-errClamp,Math.min(errClamp,eB));}
-    if(x+1<width){const ni=idx+3;work[ni]+=eR*7/16;work[ni+1]+=eG*7/16;work[ni+2]+=eB*7/16;}
-    if(y+1<height){if(x-1>=0){const ni=idx+(width-1)*3;work[ni]+=eR*3/16;work[ni+1]+=eG*3/16;work[ni+2]+=eB*3/16;}
-      {const ni=idx+width*3;work[ni]+=eR*5/16;work[ni+1]+=eG*5/16;work[ni+2]+=eB*5/16;}
-      if(x+1<width){const ni=idx+(width+1)*3;work[ni]+=eR/16;work[ni+1]+=eG/16;work[ni+2]+=eB/16;}}
+    if(errClamp>0){if(eR>errClamp)eR=errClamp;else if(eR<-errClamp)eR=-errClamp;if(eG>errClamp)eG=errClamp;else if(eG<-errClamp)eG=-errClamp;if(eB>errClamp)eB=errClamp;else if(eB<-errClamp)eB=-errClamp;}
+    if(x+1<width){const ni=idx+3;work[ni]+=eR*0.4375;work[ni+1]+=eG*0.4375;work[ni+2]+=eB*0.4375;}
+    if(y+1<height){if(x-1>=0){const ni=idx+(width-1)*3;work[ni]+=eR*0.1875;work[ni+1]+=eG*0.1875;work[ni+2]+=eB*0.1875;}
+      {const ni=idx+width*3;work[ni]+=eR*0.3125;work[ni+1]+=eG*0.3125;work[ni+2]+=eB*0.3125;}
+      if(x+1<width){const ni=idx+(width+1)*3;work[ni]+=eR*0.0625;work[ni+1]+=eG*0.0625;work[ni+2]+=eB*0.0625;}}
   }}
   const out=new Uint8ClampedArray(width*height*4);
   for(let i=0;i<width*height;i++){out[i*4]=Math.max(0,Math.min(255,Math.round(work[i*3])));out[i*4+1]=Math.max(0,Math.min(255,Math.round(work[i*3+1])));out[i*4+2]=Math.max(0,Math.min(255,Math.round(work[i*3+2])));out[i*4+3]=255;}
