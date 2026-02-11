@@ -1,10 +1,10 @@
-"""エントリーポイント: uv run python -m four_color_dither"""
+"""エントリーポイント: uv run python -m epaper_palette_dither"""
 
 import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from four_color_dither.presentation.main_window import MainWindow
+from epaper_palette_dither.presentation.main_window import MainWindow
 
 
 def main() -> None:

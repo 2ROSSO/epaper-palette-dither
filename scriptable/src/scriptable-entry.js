@@ -4,7 +4,7 @@
 // share-sheet-inputs: file-url, image;
 // always-run-in-app: true;
 
-// 4ColorDither.js — E-Ink 4色ディザリング for iPhone
+// EPaperPaletteDither.js — E-Ink 4色ディザリング for iPhone
 //
 // Usage:
 //   1. Scriptableアプリで直接実行 → フォトライブラリから選択

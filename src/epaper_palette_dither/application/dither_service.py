@@ -11,8 +11,8 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from four_color_dither.domain.color import EINK_PALETTE, RGB, find_nearest_color, rgb_to_lab
-from four_color_dither.domain.dithering import DitherAlgorithm, FloydSteinbergDither
+from epaper_palette_dither.domain.color import EINK_PALETTE, RGB, find_nearest_color, rgb_to_lab
+from epaper_palette_dither.domain.dithering import DitherAlgorithm, FloydSteinbergDither
 
 
 class DitherService:

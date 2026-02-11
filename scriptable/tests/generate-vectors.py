@@ -18,20 +18,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 import numpy as np
 
-from four_color_dither.domain.color import (
+from epaper_palette_dither.domain.color import (
     EINK_PALETTE,
     RGB,
     ciede2000,
     find_nearest_color,
     rgb_to_lab,
 )
-from four_color_dither.infrastructure.gamut_mapping import (
+from epaper_palette_dither.infrastructure.gamut_mapping import (
     anti_saturate,
     anti_saturate_centroid,
     apply_illuminant,
     gamut_map,
 )
-from four_color_dither.application.dither_service import DitherService
+from epaper_palette_dither.application.dither_service import DitherService
 
 
 def _rgb_tuple(rgb: RGB) -> list[int]:

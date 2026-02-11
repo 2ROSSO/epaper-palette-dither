@@ -12,16 +12,16 @@ from typing import Callable, Sequence
 import numpy as np
 import numpy.typing as npt
 
-from four_color_dither.domain.color import EINK_PALETTE, RGB
-from four_color_dither.domain.image_model import ColorMode, ImageSpec
-from four_color_dither.application.dither_service import DitherService
-from four_color_dither.infrastructure.gamut_mapping import (
+from epaper_palette_dither.domain.color import EINK_PALETTE, RGB
+from epaper_palette_dither.domain.image_model import ColorMode, ImageSpec
+from epaper_palette_dither.application.dither_service import DitherService
+from epaper_palette_dither.infrastructure.gamut_mapping import (
     anti_saturate,
     anti_saturate_centroid,
     apply_illuminant,
     gamut_map,
 )
-from four_color_dither.infrastructure.image_io import load_image, resize_image, save_image
+from epaper_palette_dither.infrastructure.image_io import load_image, resize_image, save_image
 
 
 ProgressCallback = Callable[[str, float], None]

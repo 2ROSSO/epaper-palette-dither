@@ -4,7 +4,7 @@
 // share-sheet-inputs: file-url, image;
 // always-run-in-app: true;
 
-// 4ColorDither.js — E-Ink 4色ディザリング for iPhone
+// EPaperPaletteDither.js — E-Ink 4色ディザリング for iPhone
 //
 // Usage:
 //   1. Scriptableアプリで直接実行 → フォトライブラリから選択
@@ -60,7 +60,7 @@ const html = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>4-Color E-Paper Dither</title>
+<title>E-Paper Palette Dither</title>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -249,7 +249,7 @@ const html = `<!DOCTYPE html>
 </head>
 <body>
 
-<h1>4-Color E-Paper Dither</h1>
+<h1>E-Paper Palette Dither</h1>
 
 <!-- For browser testing: file picker (hidden when in Scriptable) -->
 <div class="file-input-wrapper" id="filePicker">

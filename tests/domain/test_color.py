@@ -1,6 +1,6 @@
 """color.py のテスト。"""
 
-from four_color_dither.domain.color import (
+from epaper_palette_dither.domain.color import (
     RGB,
     LAB,
     EINK_BLACK,

@@ -14,7 +14,7 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from four_color_dither.domain.color import RGB
+from epaper_palette_dither.domain.color import RGB
 
 # デフォルトの色相許容幅（0〜1スケール、1=360°）
 _DEFAULT_HUE_TOLERANCE = 60.0 / 360.0
