@@ -148,10 +148,10 @@ class TestImageConverter:
         stage_names = [s for s, _ in stages]
         assert "ディザリング" not in stage_names
 
-    def test_color_mode_default_is_grayout(self) -> None:
-        """デフォルトのカラーモードはGRAYOUT。"""
+    def test_color_mode_default_is_illuminant(self) -> None:
+        """デフォルトのカラーモードはILLUMINANT。"""
         converter = ImageConverter()
-        assert converter.color_mode == ColorMode.GRAYOUT
+        assert converter.color_mode == ColorMode.ILLUMINANT
 
     def test_color_mode_setter(self) -> None:
         """color_modeを切り替えられる。"""

@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QWheelEvent, QMouseEvent, QDragEnterEvent, QDropEvent
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizePolicy
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QWheelEvent, QMouseEvent, QDragEnterEvent, QDragLeaveEvent, QDropEvent
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizePolicy, QStyle
 
 
 class ImageViewer(QWidget):
@@ -30,10 +30,10 @@ class ImageViewer(QWidget):
         self.setAcceptDrops(True)
         self.setMinimumSize(200, 150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setProperty("dragActive", False)
 
         self._label = QLabel(title or "ドラッグ&ドロップで画像を読み込み")
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setStyleSheet("color: #888; font-size: 14px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -136,11 +136,24 @@ class ImageViewer(QWidget):
             self._fit_to_widget()
         super().resizeEvent(event)
 
+    def _set_drag_active(self, active: bool) -> None:
+        """D&D ドラッグ中のビジュアルフィードバックを切り替える。"""
+        self.setProperty("dragActive", active)
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
+            self._set_drag_active(True)
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
+        self._set_drag_active(False)
 
     def dropEvent(self, event: QDropEvent) -> None:
+        self._set_drag_active(False)
         urls = event.mimeData().urls()
         if urls:
             path = urls[0].toLocalFile()
