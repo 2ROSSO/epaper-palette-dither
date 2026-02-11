@@ -204,6 +204,36 @@ function testGamutModule(vectors) {
     );
   }
 
+  // Anti-Saturate Lab
+  if (vectors.antiSaturateLab) {
+    addSection('gamut-mapping.js — Anti-Saturate Lab');
+    const tc = vectors.antiSaturateLab;
+    const imgData = arrayToImageData(tc.input);
+    const result = antiSaturateLab(imgData, EINK_PALETTE);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 2);
+    addResult(
+      'antiSaturateLab(3x3)',
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+
+  // Centroid Clip Lab
+  if (vectors.centroidClipLab) {
+    addSection('gamut-mapping.js — Centroid Clip Lab');
+    const tc = vectors.centroidClipLab;
+    const imgData = arrayToImageData(tc.input);
+    const result = antiSaturateCentroidLab(imgData, EINK_PALETTE);
+    const resultArr = imageDataToArray(result);
+    const pass = approxEqualDeep(resultArr, tc.expected, 2);
+    addResult(
+      'antiSaturateCentroidLab(3x3)',
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+
   // Illuminant
   for (const key of Object.keys(vectors)) {
     if (!key.startsWith('illuminant_')) continue;

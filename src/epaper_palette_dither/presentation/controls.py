@@ -9,6 +9,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QSpinBox,
@@ -40,6 +41,7 @@ class ControlPanel(QWidget):
     error_clamp_changed = pyqtSignal(int)
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
+    use_lab_changed = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -67,6 +69,14 @@ class ControlPanel(QWidget):
             self._color_mode_combo.addItem(mode.value, mode)
         self._color_mode_combo.currentIndexChanged.connect(self._on_color_mode_changed)
         layout.addWidget(self._color_mode_combo)
+
+        # Lab チェックボックス（Anti-Sat / Centroid Clip 専用）
+        self._lab_checkbox = QCheckBox("Lab")
+        self._lab_checkbox.setToolTip("Lab 空間でガマットマッピングを実行")
+        self._lab_checkbox.setChecked(True)
+        self._lab_checkbox.setVisible(False)
+        self._lab_checkbox.toggled.connect(self.use_lab_changed.emit)
+        layout.addWidget(self._lab_checkbox)
 
         # ガマットマッピング強度スピンボックス（Grayout専用）
         self._gamut_spin = QDoubleSpinBox()
@@ -160,7 +170,7 @@ class ControlPanel(QWidget):
         self._red_penalty_spin.setRange(0.0, 100.0)
         self._red_penalty_spin.setSingleStep(1.0)
         self._red_penalty_spin.setDecimals(1)
-        self._red_penalty_spin.setValue(10.0)
+        self._red_penalty_spin.setValue(0.0)
         self._red_penalty_spin.setFixedWidth(90)
         self._red_penalty_spin.setToolTip("明部での赤ペナルティ (0=無効, CIEDE2000距離に加算)")
         self._red_penalty_spin.valueChanged.connect(self.red_penalty_changed.emit)
@@ -172,7 +182,7 @@ class ControlPanel(QWidget):
         self._yellow_penalty_spin.setRange(0.0, 100.0)
         self._yellow_penalty_spin.setSingleStep(1.0)
         self._yellow_penalty_spin.setDecimals(1)
-        self._yellow_penalty_spin.setValue(15.0)
+        self._yellow_penalty_spin.setValue(0.0)
         self._yellow_penalty_spin.setFixedWidth(90)
         self._yellow_penalty_spin.setToolTip("暗部での黄ペナルティ (0=無効, CIEDE2000距離に加算)")
         self._yellow_penalty_spin.valueChanged.connect(self.yellow_penalty_changed.emit)
@@ -230,6 +240,9 @@ class ControlPanel(QWidget):
             is_illuminant = mode == ColorMode.ILLUMINANT
             for w in self._illuminant_widgets:
                 w.setVisible(is_illuminant)
+            self._lab_checkbox.setVisible(
+                mode in (ColorMode.ANTI_SATURATION, ColorMode.CENTROID_CLIP),
+            )
             self.color_mode_changed.emit(mode)
 
     @property

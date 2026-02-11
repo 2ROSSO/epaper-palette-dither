@@ -291,6 +291,13 @@ const html = `<!DOCTYPE html>
   </div>
 </div>
 
+<!-- Lab space toggle (only for AntiSat / Centroid) -->
+<div class="control-section" id="labSection" style="display:none">
+  <div class="control-row">
+    <label><input type="checkbox" id="labCheckbox" checked> Lab space gamut mapping</label>
+  </div>
+</div>
+
 <!-- Grayout strength (only for Grayout mode) -->
 <div class="control-section" id="strengthSection" style="display:none">
   <div class="control-row">
@@ -328,13 +335,13 @@ const html = `<!DOCTYPE html>
   </div>
   <div class="control-row">
     <span class="control-label">RedPen:</span>
-    <input type="range" id="redPenSlider" min="0" max="1000" value="100">
-    <span class="control-value" id="redPenValue">10.0</span>
+    <input type="range" id="redPenSlider" min="0" max="1000" value="0">
+    <span class="control-value" id="redPenValue">0.0</span>
   </div>
   <div class="control-row">
     <span class="control-label">YellowPen:</span>
-    <input type="range" id="yellowPenSlider" min="0" max="1000" value="150">
-    <span class="control-value" id="yellowPenValue">15.0</span>
+    <input type="range" id="yellowPenSlider" min="0" max="1000" value="0">
+    <span class="control-value" id="yellowPenValue">0.0</span>
   </div>
 </div>
 
@@ -376,6 +383,22 @@ function rgbToLab(r, g, b) {
   const z = 0.0193339*rLin + 0.1191920*gLin + 0.9503041*bLin;
   const fx = _labF(x/0.95047), fy = _labF(y/1.0), fz = _labF(z/1.08883);
   return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+
+function _labFInv(t) {
+  const delta = 6.0 / 29.0;
+  if (t > delta) return t * t * t;
+  return 3.0 * delta * delta * (t - 4.0 / 29.0);
+}
+
+function labToRgb(L, a, bStar) {
+  const fy = (L + 16.0) / 116.0, fx = a / 500.0 + fy, fz = fy - bStar / 200.0;
+  const x = 0.95047 * _labFInv(fx), y = 1.00000 * _labFInv(fy), z = 1.08883 * _labFInv(fz);
+  const rLin = 3.2404542*x - 1.5371385*y - 0.4985314*z;
+  const gLin = -0.9692660*x + 1.8760108*y + 0.0415560*z;
+  const bLin = 0.0556434*x - 0.2040259*y + 1.0572252*z;
+  function toSrgb(c){c=Math.max(0,Math.min(1,c));if(c<=0.0031308)return 12.92*c;return 1.055*Math.pow(c,1/2.4)-0.055;}
+  return [Math.max(0,Math.min(255,Math.round(toSrgb(rLin)*255))),Math.max(0,Math.min(255,Math.round(toSrgb(gLin)*255))),Math.max(0,Math.min(255,Math.round(toSrgb(bLin)*255)))];
 }
 
 function ciede2000(lab1, lab2) {
@@ -542,6 +565,23 @@ function antiSaturateCentroid(imageData,palette) {
   return{data:out,width,height};
 }
 
+function antiSaturateLab(imageData,palette) {
+  palette=palette||EINK_PALETTE;const{data,width,height}=imageData;const out=new Uint8ClampedArray(data.length);
+  const labVerts=palette.map(c=>rgbToLab(c[0],c[1],c[2]));const{faceVerts:fV,faceNormals:fN}=_buildTetrahedronFaces(labVerts);
+  for(let i=0;i<data.length;i+=4){const lab=rgbToLab(data[i],data[i+1],data[i+2]);const r=_isInsideTetrahedron(lab,fV,fN)?lab:_projectToTetrahedronSurface(lab,fV);
+    const rgb=labToRgb(r[0],r[1],r[2]);out[i]=rgb[0];out[i+1]=rgb[1];out[i+2]=rgb[2];out[i+3]=255;}
+  return{data:out,width,height};
+}
+
+function antiSaturateCentroidLab(imageData,palette) {
+  palette=palette||EINK_PALETTE;const{data,width,height}=imageData;const out=new Uint8ClampedArray(data.length);
+  const labVerts=palette.map(c=>rgbToLab(c[0],c[1],c[2]));const{faceVerts:fV,faceNormals:fN}=_buildTetrahedronFaces(labVerts);
+  const cen=[labVerts.reduce((s,v)=>s+v[0],0)/4,labVerts.reduce((s,v)=>s+v[1],0)/4,labVerts.reduce((s,v)=>s+v[2],0)/4];
+  for(let i=0;i<data.length;i+=4){const lab=rgbToLab(data[i],data[i+1],data[i+2]);const r=_isInsideTetrahedron(lab,fV,fN)?lab:_clipViaCentroid(lab,cen,fV,fN);
+    const rgb=labToRgb(r[0],r[1],r[2]);out[i]=rgb[0];out[i+1]=rgb[1];out[i+2]=rgb[2];out[i+3]=255;}
+  return{data:out,width,height};
+}
+
 function applyIlluminant(imageData,rS,gS,bS,wP) {
   const{data,width,height}=imageData;const out=new Uint8ClampedArray(data.length);
   const lF=0.2126*rS+0.7152*gS+0.0722*bS,nm=lF>1e-12?1/lF:1;
@@ -598,6 +638,9 @@ function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
   const gamutBtn = document.getElementById('gamutBtn');
   const saveBtn = document.getElementById('saveBtn');
 
+  // Lab checkbox ref
+  const labCheckbox = document.getElementById('labCheckbox');
+
   // Slider refs
   const strengthSlider = document.getElementById('strengthSlider');
   const strengthValue = document.getElementById('strengthValue');
@@ -633,6 +676,7 @@ function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
 
     // Show/hide mode-specific controls
     document.getElementById('strengthSection').style.display = colorMode === 'grayout' ? '' : 'none';
+    document.getElementById('labSection').style.display = (colorMode === 'antisat' || colorMode === 'centroid') ? '' : 'none';
     document.getElementById('illuminantSection').style.display = colorMode === 'illuminant' ? '' : 'none';
   });
 
@@ -729,9 +773,11 @@ function floydSteinbergDither(imageData,palette,errClamp,redPen,yellowPen) {
   function applyColorProcessing(imgData, params) {
     switch (colorMode) {
       case 'antisat':
-        return antiSaturate(imgData, EINK_PALETTE);
+        return labCheckbox.checked ? antiSaturateLab(imgData, EINK_PALETTE)
+                                   : antiSaturate(imgData, EINK_PALETTE);
       case 'centroid':
-        return antiSaturateCentroid(imgData, EINK_PALETTE);
+        return labCheckbox.checked ? antiSaturateCentroidLab(imgData, EINK_PALETTE)
+                                   : antiSaturateCentroid(imgData, EINK_PALETTE);
       case 'illuminant': {
         const rScale = params.illumRed + params.illumYellow;
         const gScale = params.illumYellow;

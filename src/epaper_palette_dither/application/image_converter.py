@@ -18,6 +18,8 @@ from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.infrastructure.gamut_mapping import (
     anti_saturate,
     anti_saturate_centroid,
+    anti_saturate_centroid_lab,
+    anti_saturate_lab,
     apply_illuminant,
     gamut_map,
 )
@@ -44,8 +46,9 @@ class ImageConverter:
         self._illuminant_yellow: float = 1.0
         self._illuminant_white: float = 1.0
         self._error_clamp: int = 85
-        self._red_penalty: float = 10.0
-        self._yellow_penalty: float = 15.0
+        self._red_penalty: float = 0.0
+        self._yellow_penalty: float = 0.0
+        self._use_lab_space: bool = True
 
     @property
     def gamut_strength(self) -> float:
@@ -111,13 +114,25 @@ class ImageConverter:
     def yellow_penalty(self, value: float) -> None:
         self._yellow_penalty = max(0.0, min(100.0, value))
 
+    @property
+    def use_lab_space(self) -> bool:
+        return self._use_lab_space
+
+    @use_lab_space.setter
+    def use_lab_space(self, value: bool) -> None:
+        self._use_lab_space = value
+
     def _apply_color_processing(
         self, rgb_array: npt.NDArray[np.uint8],
     ) -> npt.NDArray[np.uint8]:
         """現在のモードに応じた色変換前処理を適用。"""
         if self._color_mode == ColorMode.ANTI_SATURATION:
+            if self._use_lab_space:
+                return anti_saturate_lab(rgb_array, self._palette)
             return anti_saturate(rgb_array, self._palette)
         if self._color_mode == ColorMode.CENTROID_CLIP:
+            if self._use_lab_space:
+                return anti_saturate_centroid_lab(rgb_array, self._palette)
             return anti_saturate_centroid(rgb_array, self._palette)
         if self._color_mode == ColorMode.ILLUMINANT:
             r_scale = self._illuminant_red + self._illuminant_yellow

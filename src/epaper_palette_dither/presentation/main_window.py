@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
         self._controls.error_clamp_changed.connect(self._on_error_clamp_changed)
         self._controls.red_penalty_changed.connect(self._on_red_penalty_changed)
         self._controls.yellow_penalty_changed.connect(self._on_yellow_penalty_changed)
+        self._controls.use_lab_changed.connect(self._on_use_lab_changed)
         self._controls.set_convert_enabled(False)
         self._controls.set_gamut_only_enabled(False)
         self._controls.set_rotate_enabled(False)
@@ -279,6 +280,9 @@ class MainWindow(QMainWindow):
 
     def _on_yellow_penalty_changed(self, value: float) -> None:
         self._converter.yellow_penalty = value
+
+    def _on_use_lab_changed(self, enabled: bool) -> None:
+        self._converter.use_lab_space = enabled
 
     def _on_save(self) -> None:
         if self._result_image is None:
