@@ -13,15 +13,20 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QSplitter,
     QStatusBar,
     QFileDialog,
     QMessageBox,
     QLabel,
+    QDialog,
+    QTextEdit,
+    QDialogButtonBox,
 )
 
 from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.application.image_converter import ImageConverter
+from epaper_palette_dither.application.optimizer_service import OptimizerService, OptimizeResult
 from epaper_palette_dither.application.reconvert_service import ReconvertService
 from epaper_palette_dither.domain.image_model import ImageSpec
 from epaper_palette_dither.infrastructure.image_io import load_image, rotate_image_cw90, save_image
@@ -108,6 +113,50 @@ class ReconvertWorker(QThread):
             self.error.emit(str(e))
 
 
+class OptimizerWorker(QThread):
+    """バックグラウンドでパラメータ最適化を実行するワーカー。"""
+
+    finished = pyqtSignal(object)  # OptimizeResult
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str, float)
+
+    def __init__(
+        self,
+        service: OptimizerService,
+        source_image: np.ndarray,
+        spec: ImageSpec,
+        converter: ImageConverter,
+        initial_params: dict[str, float],
+        n_trials: int = 50,
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._source_image = source_image
+        self._spec = spec
+        self._color_mode = converter.color_mode
+        self._initial_params = initial_params
+        self._n_trials = n_trials
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            result = self._service.optimize(
+                self._source_image,
+                self._spec,
+                self._color_mode,
+                self._initial_params,
+                n_trials=self._n_trials,
+                progress=lambda s, p: self.progress.emit(s, p),
+                cancelled=lambda: self._cancelled,
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MainWindow(QMainWindow):
     """E-Paper Palette Dither メインウィンドウ。"""
 
@@ -122,9 +171,11 @@ class MainWindow(QMainWindow):
         self._reconvert_image: np.ndarray | None = None
         self._worker: ConvertWorker | None = None
         self._reconvert_worker: ReconvertWorker | None = None
+        self._optimizer_worker: OptimizerWorker | None = None
 
         self._converter = ImageConverter(DitherService())
         self._reconvert_service = ReconvertService()
+        self._optimizer_service = OptimizerService()
 
         self._setup_ui()
 
@@ -199,10 +250,12 @@ class MainWindow(QMainWindow):
         self._controls.red_penalty_changed.connect(self._on_red_penalty_changed)
         self._controls.yellow_penalty_changed.connect(self._on_yellow_penalty_changed)
         self._controls.use_lab_changed.connect(self._on_use_lab_changed)
+        self._controls.optimize_clicked.connect(self._on_optimize)
         self._controls.set_convert_enabled(False)
         self._controls.set_gamut_only_enabled(False)
         self._controls.set_rotate_enabled(False)
         self._controls.set_reconvert_enabled(False)
+        self._controls.set_optimize_enabled(False)
         main_layout.addWidget(self._controls)
 
         # --- ステータスバー ---
@@ -257,6 +310,7 @@ class MainWindow(QMainWindow):
             self._controls.set_rotate_enabled(True)
             self._controls.set_save_enabled(False)
             self._controls.set_reconvert_enabled(False)
+            self._controls.set_optimize_enabled(True)
             h, w = self._source_image.shape[:2]
             self._status_bar.showMessage(f"読み込み完了: {Path(path).name} ({w}x{h})")
         except Exception as e:
@@ -396,6 +450,85 @@ class MainWindow(QMainWindow):
 
     def _on_use_lab_changed(self, enabled: bool) -> None:
         self._converter.use_lab_space = enabled
+
+    def _on_optimize(self) -> None:
+        if self._source_image is None:
+            return
+
+        preset = self._controls.current_preset
+        spec = ImageSpec(
+            target_width=preset.width,
+            target_height=preset.height,
+        )
+
+        self._controls.set_convert_enabled(False)
+        self._controls.set_gamut_only_enabled(False)
+        self._controls.set_rotate_enabled(False)
+        self._controls.set_reconvert_enabled(False)
+        self._controls.set_optimize_enabled(False)
+        self._status_bar.showMessage("最適化中...")
+
+        self._optimizer_worker = OptimizerWorker(
+            self._optimizer_service,
+            self._source_image,
+            spec,
+            self._converter,
+            self._controls.get_current_params(),
+            n_trials=self._controls.optimize_n_trials,
+        )
+        self._optimizer_worker.progress.connect(self._on_optimize_progress)
+        self._optimizer_worker.finished.connect(self._on_optimize_done)
+        self._optimizer_worker.error.connect(self._on_optimize_error)
+        self._optimizer_worker.start()
+
+    def _on_optimize_progress(self, stage: str, value: float) -> None:
+        self._status_bar.showMessage(f"最適化: {stage} ({int(value * 100)}%)")
+
+    def _on_optimize_done(self, result: object) -> None:
+        opt_result: OptimizeResult = result  # type: ignore[assignment]
+
+        # UI にパラメータを反映
+        self._controls.set_params(opt_result.best_params)
+
+        # ボタン復元
+        self._controls.set_convert_enabled(True)
+        self._controls.set_gamut_only_enabled(True)
+        self._controls.set_rotate_enabled(True)
+        self._controls.set_optimize_enabled(True)
+        if self._result_image is not None:
+            self._controls.set_reconvert_enabled(True)
+
+        self._status_bar.showMessage(
+            f"最適化完了: composite={opt_result.best_score:.4f}"
+        )
+
+        # ログダイアログ表示
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Optimize Result")
+        dialog.resize(500, 400)
+        layout = QVBoxLayout(dialog)
+
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setFontFamily("Consolas, monospace")
+        text_edit.setPlainText("\n".join(opt_result.log))
+        layout.addWidget(text_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+
+        dialog.exec()
+
+    def _on_optimize_error(self, message: str) -> None:
+        self._controls.set_convert_enabled(True)
+        self._controls.set_gamut_only_enabled(True)
+        self._controls.set_rotate_enabled(True)
+        self._controls.set_optimize_enabled(True)
+        if self._result_image is not None:
+            self._controls.set_reconvert_enabled(True)
+        QMessageBox.warning(self, "最適化エラー", f"最適化に失敗しました:\n{message}")
+        self._status_bar.showMessage("最適化エラー")
 
     def _on_save(self) -> None:
         if self._result_image is None:

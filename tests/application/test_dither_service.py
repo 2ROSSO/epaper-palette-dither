@@ -436,6 +436,45 @@ class TestImageConverter:
                 assert tuple(result[y, x]) in palette_set
 
 
+class TestConvertPreResized:
+    """convert_pre_resized() のテスト。"""
+
+    def test_shape_and_dtype(self) -> None:
+        """出力形状と dtype が正しい。"""
+        resized = np.random.default_rng(42).integers(0, 256, (15, 20, 3), dtype=np.uint8)
+        converter = ImageConverter()
+        result = converter.convert_pre_resized(resized)
+
+        assert result.shape == (15, 20, 3)
+        assert result.dtype == np.uint8
+
+    def test_output_only_palette_colors(self) -> None:
+        """出力がパレット4色のみ。"""
+        resized = np.random.default_rng(42).integers(0, 256, (15, 20, 3), dtype=np.uint8)
+        converter = ImageConverter()
+        result = converter.convert_pre_resized(resized)
+
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(result.shape[0]):
+            for x in range(result.shape[1]):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_matches_convert_array(self) -> None:
+        """convert_pre_resized(resize(img)) == convert_array(img, spec) を検証。"""
+        from epaper_palette_dither.infrastructure.image_io import resize_image
+
+        img = np.random.default_rng(42).integers(0, 256, (50, 80, 3), dtype=np.uint8)
+        spec = ImageSpec(target_width=20, target_height=15)
+
+        converter = ImageConverter()
+        result_via_array = converter.convert_array(img, spec)
+
+        resized = resize_image(img, spec.target_width, spec.target_height, spec.keep_aspect_ratio)
+        result_via_pre = converter.convert_pre_resized(resized)
+
+        np.testing.assert_array_equal(result_via_array, result_via_pre)
+
+
 class TestDitherServiceParams:
     def setup_method(self) -> None:
         self.service = DitherService()

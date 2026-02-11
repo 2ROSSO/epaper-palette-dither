@@ -142,6 +142,24 @@ class ImageConverter:
             )
         return gamut_map(rgb_array, self._palette, self._gamut_strength)
 
+    def convert_pre_resized(
+        self,
+        resized: npt.NDArray[np.uint8],
+    ) -> npt.NDArray[np.uint8]:
+        """リサイズ済み画像にガマットマッピング＋ディザリングのみ実行。
+
+        Args:
+            resized: リサイズ済みの (H, W, 3) uint8 配列
+
+        Returns:
+            ディザリング済みの (H, W, 3) uint8 配列
+        """
+        mapped = self._apply_color_processing(resized)
+        return self._dither_service.dither_array_fast(
+            mapped, self._palette, self._error_clamp,
+            self._red_penalty, self._yellow_penalty,
+        )
+
     def convert(
         self,
         input_path: str | Path,

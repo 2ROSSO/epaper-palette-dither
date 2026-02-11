@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QGroupBox,
+    QMenu,
     QSpinBox,
     QPushButton,
     QLabel,
@@ -36,6 +38,7 @@ class ControlPanel(QWidget):
     rotate_clicked = pyqtSignal()
     save_clicked = pyqtSignal()
     reconvert_clicked = pyqtSignal()
+    optimize_clicked = pyqtSignal()
     preset_changed = pyqtSignal(DisplayPreset)
     gamut_strength_changed = pyqtSignal(float)
     color_mode_changed = pyqtSignal(object)
@@ -278,6 +281,17 @@ class ControlPanel(QWidget):
         self._save_btn.clicked.connect(self.save_clicked.emit)
         actions_layout.addWidget(self._save_btn)
 
+        self._optimize_btn = QPushButton("\u2699 Optimize")
+        self._optimize_btn.setObjectName("optimizeBtn")
+        self._optimize_btn.setMinimumWidth(100)
+        self._optimize_btn.setToolTip("パラメータを自動最適化（Optuna TPE）\n右クリックで Trial 数を変更")
+        self._optimize_btn.setEnabled(False)
+        self._optimize_btn.clicked.connect(self.optimize_clicked.emit)
+        self._optimize_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._optimize_btn.customContextMenuRequested.connect(self._show_optimize_menu)
+        self._optimize_n_trials = 50
+        actions_layout.addWidget(self._optimize_btn)
+
         row2.addWidget(actions_group)
 
         # --- Reconvert グループ ---
@@ -378,7 +392,67 @@ class ControlPanel(QWidget):
     def _on_gamut_changed(self, value: float) -> None:
         self.gamut_strength_changed.emit(value)
 
+    def set_optimize_enabled(self, enabled: bool) -> None:
+        self._optimize_btn.setEnabled(enabled)
+
+    def get_current_params(self) -> dict[str, float]:
+        """現在の全パラメータを dict で取得。"""
+        return {
+            "gamut_strength": self._gamut_spin.value(),
+            "illuminant_red": self._illuminant_red_spin.value(),
+            "illuminant_yellow": self._illuminant_yellow_spin.value(),
+            "illuminant_white": self._illuminant_white_spin.value(),
+            "error_clamp": float(self._error_clamp_spin.value()),
+            "red_penalty": self._red_penalty_spin.value(),
+            "yellow_penalty": self._yellow_penalty_spin.value(),
+            "blur_radius": float(self._blur_radius_spin.value()),
+            "brightness": self._brightness_spin.value(),
+        }
+
+    def set_params(self, params: dict[str, float]) -> None:
+        """dict からUIにパラメータを反映。"""
+        if "gamut_strength" in params:
+            self._gamut_spin.setValue(params["gamut_strength"])
+        if "illuminant_red" in params:
+            self._illuminant_red_spin.setValue(params["illuminant_red"])
+        if "illuminant_yellow" in params:
+            self._illuminant_yellow_spin.setValue(params["illuminant_yellow"])
+        if "illuminant_white" in params:
+            self._illuminant_white_spin.setValue(params["illuminant_white"])
+        if "error_clamp" in params:
+            self._error_clamp_spin.setValue(int(params["error_clamp"]))
+        if "red_penalty" in params:
+            self._red_penalty_spin.setValue(params["red_penalty"])
+        if "yellow_penalty" in params:
+            self._yellow_penalty_spin.setValue(params["yellow_penalty"])
+        if "blur_radius" in params:
+            self._blur_radius_spin.setValue(int(params["blur_radius"]))
+        if "brightness" in params:
+            self._brightness_spin.setValue(params["brightness"])
+
     def _on_illuminant_reset(self) -> None:
         self._illuminant_red_spin.setValue(_ILLUMINANT_RED_DEFAULT)
         self._illuminant_yellow_spin.setValue(_ILLUMINANT_YELLOW_DEFAULT)
         self._illuminant_white_spin.setValue(_ILLUMINANT_WHITE_DEFAULT)
+
+    @property
+    def optimize_n_trials(self) -> int:
+        return self._optimize_n_trials
+
+    def _show_optimize_menu(self, pos: object) -> None:
+        """Optimize ボタンの右クリックメニュー。"""
+        menu = QMenu(self)
+        trials_options = [25, 50, 100, 200, 500]
+        for n in trials_options:
+            action = QAction(f"{n} trials", self)
+            action.setCheckable(True)
+            action.setChecked(n == self._optimize_n_trials)
+            action.triggered.connect(lambda checked, val=n: self._set_optimize_n_trials(val))
+            menu.addAction(action)
+        menu.exec(self._optimize_btn.mapToGlobal(pos))
+
+    def _set_optimize_n_trials(self, n: int) -> None:
+        self._optimize_n_trials = n
+        self._optimize_btn.setToolTip(
+            f"パラメータを自動最適化（Optuna TPE, {n} trials）\n右クリックで Trial 数を変更"
+        )
