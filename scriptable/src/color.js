@@ -259,9 +259,133 @@ function findNearestColor(r, g, b, palette, redPenalty, yellowPenalty, brightnes
   return bestColor;
 }
 
+// --- sRGB → Linear LUT (256エントリ事前計算) ---
+
+const SRGB_TO_LINEAR_LUT = new Float64Array(256);
+for (let i = 0; i < 256; i++) {
+  const v = i / 255.0;
+  SRGB_TO_LINEAR_LUT[i] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+// --- Lab変換定数 ---
+const _LAB_DELTA = 6.0 / 29.0;
+const _LAB_DELTA_SQ3 = _LAB_DELTA * _LAB_DELTA * _LAB_DELTA;
+const _LAB_DELTA_SQ3_INV = 1.0 / (3.0 * _LAB_DELTA * _LAB_DELTA);
+const _LAB_OFFSET = 4.0 / 29.0;
+const _XN_INV = 1.0 / 0.95047;
+const _ZN_INV = 1.0 / 1.08883;
+
+/**
+ * RGB(0-255) → Lab インライン高速変換。
+ * rgbToLabと同じ結果だがLUTベースで高速。
+ * @param {number} r - Red (0-255, integer)
+ * @param {number} g - Green (0-255, integer)
+ * @param {number} b - Blue (0-255, integer)
+ * @returns {number[]} [L, a, b]
+ */
+function rgbToLabFast(r, g, b) {
+  const rLin = SRGB_TO_LINEAR_LUT[r];
+  const gLin = SRGB_TO_LINEAR_LUT[g];
+  const bLin = SRGB_TO_LINEAR_LUT[b];
+
+  const xr = (0.4124564 * rLin + 0.3575761 * gLin + 0.1804375 * bLin) * _XN_INV;
+  const yr = 0.2126729 * rLin + 0.7151522 * gLin + 0.0721750 * bLin;
+  const zr = (0.0193339 * rLin + 0.1191920 * gLin + 0.9503041 * bLin) * _ZN_INV;
+
+  const fx = xr > _LAB_DELTA_SQ3 ? Math.pow(xr, 1.0 / 3.0) : xr * _LAB_DELTA_SQ3_INV + _LAB_OFFSET;
+  const fy = yr > _LAB_DELTA_SQ3 ? Math.pow(yr, 1.0 / 3.0) : yr * _LAB_DELTA_SQ3_INV + _LAB_OFFSET;
+  const fz = zr > _LAB_DELTA_SQ3 ? Math.pow(zr, 1.0 / 3.0) : zr * _LAB_DELTA_SQ3_INV + _LAB_OFFSET;
+
+  return [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)];
+}
+
+
+// --- LUT (ルックアップテーブル) ---
+
+const LUT_STEP = 4;
+const LUT_SIZE = 64; // 256 / LUT_STEP
+
+/**
+ * RGB→パレットインデックスの3D LUTを構築。
+ * Lab Euclidean距離で最近色を決定。ペナルティなし。
+ *
+ * @param {number[][]} palette - パレット [[r,g,b], ...]
+ * @returns {Uint8Array} 64³ のフラット配列。インデックス = (r>>2)*64*64 + (g>>2)*64 + (b>>2)
+ */
+function buildDitherLut(palette) {
+  palette = palette || EINK_PALETTE;
+  const palLab = palette.map(c => rgbToLabFast(c[0], c[1], c[2]));
+  const nPal = palette.length;
+  const lut = new Uint8Array(LUT_SIZE * LUT_SIZE * LUT_SIZE);
+  const half = LUT_STEP >> 1; // 2
+
+  for (let ri = 0; ri < LUT_SIZE; ri++) {
+    const r = ri * LUT_STEP + half;
+    for (let gi = 0; gi < LUT_SIZE; gi++) {
+      const g = gi * LUT_STEP + half;
+      for (let bi = 0; bi < LUT_SIZE; bi++) {
+        const b = bi * LUT_STEP + half;
+        const lab = rgbToLabFast(r, g, b);
+        const pL = lab[0], pa = lab[1], pb = lab[2];
+
+        let bestIdx = 0, bestDist = Infinity;
+        for (let p = 0; p < nPal; p++) {
+          const dL = pL - palLab[p][0];
+          const da = pa - palLab[p][1];
+          const db = pb - palLab[p][2];
+          const dist = dL * dL + da * da + db * db;
+          if (dist < bestDist) { bestDist = dist; bestIdx = p; }
+        }
+        lut[ri * LUT_SIZE * LUT_SIZE + gi * LUT_SIZE + bi] = bestIdx;
+      }
+    }
+  }
+  return lut;
+}
+
+/**
+ * Lab Euclidean距離 + ペナルティで最近色インデックスを検索。
+ * ペナルティあり時のディザリングループ用。
+ *
+ * @param {number} r - Red (0-255, integer)
+ * @param {number} g - Green (0-255, integer)
+ * @param {number} b - Blue (0-255, integer)
+ * @param {number[][]} palette - パレット
+ * @param {number[][]} palLab - パレットLab値 (事前計算済み)
+ * @param {number} redPenalty - 赤ペナルティ係数
+ * @param {number} yellowPenalty - 黄ペナルティ係数
+ * @param {number} brightness - 正規化輝度 (0.0-1.0)
+ * @returns {number} パレットインデックス
+ */
+function findNearestIndexLabEuclidean(r, g, b, palette, palLab, redPenalty, yellowPenalty, brightness) {
+  const lab = rgbToLabFast(r, g, b);
+  const pL = lab[0], pa = lab[1], pb = lab[2];
+  let bestIdx = 0, bestDist = Infinity;
+
+  for (let i = 0; i < palette.length; i++) {
+    const dL = pL - palLab[i][0];
+    const da = pa - palLab[i][1];
+    const db = pb - palLab[i][2];
+    let dist = Math.sqrt(dL * dL + da * da + db * db);
+
+    const p = palette[i];
+    if (redPenalty > 0 && p[0] > 150 && p[1] < 50 && p[2] < 50) {
+      dist += redPenalty * brightness;
+    }
+    if (yellowPenalty > 0 && p[0] > 200 && p[1] > 200 && p[2] < 50) {
+      dist += yellowPenalty * (1.0 - brightness);
+    }
+
+    if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+  }
+  return bestIdx;
+}
+
 // Export for test and module usage
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    EINK_PALETTE, srgbToLinear, rgbToLab, labToRgb, ciede2000, findNearestColor
+    EINK_PALETTE, srgbToLinear, rgbToLab, rgbToLabFast, labToRgb, ciede2000,
+    findNearestColor, findNearestIndexLabEuclidean,
+    buildDitherLut, LUT_STEP, LUT_SIZE,
   };
 }

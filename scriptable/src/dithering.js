@@ -11,7 +11,10 @@
  */
 
 /**
- * Floyd-Steinberg ディザリング。
+ * Floyd-Steinberg ディザリング（高速版）。
+ * ペナルティなし時: LUT O(1) 検索
+ * ペナルティあり時: Lab Euclidean距離 + ペナルティ
+ *
  * @param {{data: Uint8ClampedArray, width: number, height: number}} imageData
  * @param {number[][]} palette - パレット [[r,g,b], ...]
  * @param {number} errorClamp - 誤差クランプ (0=無効)
@@ -26,6 +29,7 @@ function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellow
   yellowPenalty = yellowPenalty || 0;
 
   const { data, width, height } = imageData;
+  const usePenalty = redPenalty > 0 || yellowPenalty > 0;
 
   // Float32Array 作業バッファ (RGB のみ、3ch)
   const work = new Float32Array(width * height * 3);
@@ -35,8 +39,14 @@ function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellow
     work[i * 3 + 2] = data[i * 4 + 2];
   }
 
-  // パレットのLab値を事前計算
-  const paletteLab = palette.map(c => rgbToLab(c[0], c[1], c[2]));
+  // LUT構築（ペナルティなし用）
+  const lut = buildDitherLut(palette);
+
+  // パレットLab値を事前計算（ペナルティあり用）
+  const palLab = usePenalty ? palette.map(c => rgbToLabFast(c[0], c[1], c[2])) : null;
+
+  // FS拡散定数
+  const W_R = 7 / 16, W_BL = 3 / 16, W_B = 5 / 16, W_BR = 1 / 16;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -49,59 +59,62 @@ function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellow
       const cb = Math.max(0, Math.min(255, Math.round(oldB)));
 
       // 最近色検索
-      let nearest;
-      if (redPenalty > 0 || yellowPenalty > 0) {
+      let palIdx;
+      if (usePenalty) {
         const brightness = Math.max(0, Math.min(1,
           (0.2126 * cr + 0.7152 * cg + 0.0722 * cb) / 255
         ));
-        nearest = findNearestColor(cr, cg, cb, palette, redPenalty, yellowPenalty, brightness);
+        palIdx = findNearestIndexLabEuclidean(
+          cr, cg, cb, palette, palLab, redPenalty, yellowPenalty, brightness
+        );
       } else {
-        nearest = findNearestColor(cr, cg, cb, palette);
+        // LUT O(1) 検索
+        palIdx = lut[(cr >> 2) * 4096 + (cg >> 2) * 64 + (cb >> 2)];
       }
 
-      work[idx]     = nearest[0];
-      work[idx + 1] = nearest[1];
-      work[idx + 2] = nearest[2];
+      const nearest = palette[palIdx];
+      const nR = nearest[0], nG = nearest[1], nB = nearest[2];
+      work[idx] = nR;
+      work[idx + 1] = nG;
+      work[idx + 2] = nB;
 
       // 量子化誤差
-      let errR = oldR - nearest[0];
-      let errG = oldG - nearest[1];
-      let errB = oldB - nearest[2];
+      let errR = oldR - nR;
+      let errG = oldG - nG;
+      let errB = oldB - nB;
 
       // Error Clamping
       if (errorClamp > 0) {
-        errR = Math.max(-errorClamp, Math.min(errorClamp, errR));
-        errG = Math.max(-errorClamp, Math.min(errorClamp, errG));
-        errB = Math.max(-errorClamp, Math.min(errorClamp, errB));
+        if (errR > errorClamp) errR = errorClamp; else if (errR < -errorClamp) errR = -errorClamp;
+        if (errG > errorClamp) errG = errorClamp; else if (errG < -errorClamp) errG = -errorClamp;
+        if (errB > errorClamp) errB = errorClamp; else if (errB < -errorClamp) errB = -errorClamp;
       }
 
       // Floyd-Steinberg 拡散
-      //        [*] [7/16]
-      //  [3/16] [5/16] [1/16]
       if (x + 1 < width) {
         const ni = idx + 3;
-        work[ni]     += errR * 7 / 16;
-        work[ni + 1] += errG * 7 / 16;
-        work[ni + 2] += errB * 7 / 16;
+        work[ni]     += errR * W_R;
+        work[ni + 1] += errG * W_R;
+        work[ni + 2] += errB * W_R;
       }
       if (y + 1 < height) {
         if (x - 1 >= 0) {
           const ni = idx + (width - 1) * 3;
-          work[ni]     += errR * 3 / 16;
-          work[ni + 1] += errG * 3 / 16;
-          work[ni + 2] += errB * 3 / 16;
+          work[ni]     += errR * W_BL;
+          work[ni + 1] += errG * W_BL;
+          work[ni + 2] += errB * W_BL;
         }
         {
           const ni = idx + width * 3;
-          work[ni]     += errR * 5 / 16;
-          work[ni + 1] += errG * 5 / 16;
-          work[ni + 2] += errB * 5 / 16;
+          work[ni]     += errR * W_B;
+          work[ni + 1] += errG * W_B;
+          work[ni + 2] += errB * W_B;
         }
         if (x + 1 < width) {
           const ni = idx + (width + 1) * 3;
-          work[ni]     += errR * 1 / 16;
-          work[ni + 1] += errG * 1 / 16;
-          work[ni + 2] += errB * 1 / 16;
+          work[ni]     += errR * W_BR;
+          work[ni + 1] += errG * W_BR;
+          work[ni + 2] += errB * W_BR;
         }
       }
     }
