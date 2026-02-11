@@ -49,6 +49,22 @@ uv run pytest
 - 内部で `Red光(1,0,0) + Yellow光(1,1,0)` を合成し RGB スケールに変換
 - BT.709 輝度重みで自動正規化し、元画像の明るさを維持
 
+### 知覚パレット (Perceived Palette)
+e-paperディスプレイの実際の発色（カメラ実測値）を考慮したディザリングモード。
+GUIの **Perceived** チェックボックスで有効化。
+
+| パレット色 | 出力値 (ハードウェア) | 知覚値 (カメラ実測) |
+|-----------|---------------------|-------------------|
+| White | RGB(255, 255, 255) | RGB(177, 175, 157) |
+| Black | RGB(0, 0, 0) | RGB(46, 38, 43) |
+| Red | RGB(200, 0, 0) | RGB(177, 51, 37) |
+| Yellow | RGB(255, 255, 0) | RGB(198, 166, 26) |
+
+- **最近傍色選択**: CIEDE2000距離を知覚パレット値で計算
+- **誤差拡散**: 知覚パレット値との差分を拡散
+- **出力**: ハードウェアパレット値をそのまま使用
+- **ガマットマッピング**: 影響なし（出力パレットで動作）
+
 ### ディザリング品質調整
 誤差拡散ディザリングの品質を制御する3つのパラメータ:
 
@@ -92,12 +108,12 @@ uv run pytest
 ```
 src/epaper_palette_dither/
 ├── domain/           # ドメイン層（Pure Python、外部依存なし）
-│   ├── color.py          # RGB, パレット定義, CIEDE2000色差
+│   ├── color.py          # RGB, パレット定義, 知覚パレット, CIEDE2000色差
 │   ├── dithering.py      # Floyd-Steinberg誤差拡散
 │   └── image_model.py    # ColorMode, DisplayPreset, ImageSpec
 ├── application/      # アプリケーション層（ユースケース）
-│   ├── dither_service.py # ディザリングサービス（ErrClamp/RedPen/YellowPen対応）
-│   └── image_converter.py # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ管理）
+│   ├── dither_service.py # ディザリングサービス（ErrClamp/RedPen/YellowPen/知覚パレット対応）
+│   └── image_converter.py # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ/知覚パレット管理）
 ├── infrastructure/   # インフラ層（Pillow, NumPy, ファイルI/O）
 │   ├── color_space.py    # Lab色空間バッチ変換
 │   ├── gamut_mapping.py  # Grayout, Anti-Saturation, Centroid Clip, Illuminant

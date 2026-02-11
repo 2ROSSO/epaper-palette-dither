@@ -59,12 +59,12 @@
 ```
 src/epaper_palette_dither/
 ├── domain/               # ドメイン層（Pure Python、外部依存なし）
-│   ├── color.py              # RGB, EINK_PALETTE, CIEDE2000, find_nearest_color
+│   ├── color.py              # RGB, EINK_PALETTE, EINK_PALETTE_PERCEIVED, CIEDE2000, find_nearest_color/find_nearest_color_index
 │   ├── dithering.py          # Floyd-Steinberg 誤差拡散
 │   └── image_model.py        # ColorMode(enum), DisplayPreset, ImageSpec
 ├── application/          # アプリケーション層（ユースケース）
-│   ├── dither_service.py     # DitherService（ディザリング実行、ErrClamp/RedPen/YellowPen対応）
-│   └── image_converter.py    # ImageConverter（リサイズ→色処理→ディザ パイプライン、品質パラメータ管理）
+│   ├── dither_service.py     # DitherService（ディザリング実行、ErrClamp/RedPen/YellowPen/知覚パレット対応）
+│   └── image_converter.py    # ImageConverter（リサイズ→色処理→ディザ パイプライン、品質パラメータ/知覚パレット管理）
 ├── infrastructure/       # インフラ層（Pillow, NumPy, ファイルI/O）
 │   ├── color_space.py        # RGB⇔Lab バッチ変換
 │   ├── gamut_mapping.py      # gamut_map, anti_saturate, anti_saturate_centroid, apply_illuminant
@@ -109,6 +109,8 @@ scriptable/
 - `ColorMode`: Grayout / Anti-Saturation / Centroid Clip / Illuminant
 - `DisplayPreset`: Santek 2.9" (296×128) / 4.2" (400×300)
 - `ImageSpec`: target_width, target_height, keep_aspect_ratio, orientation_landscape
+- `EINK_PALETTE`: 出力パレット（ハードウェア値）
+- `EINK_PALETTE_PERCEIVED`: 知覚パレット（カメラ実測値）— ディザリングの距離計算・誤差拡散に使用
 
 ## コマンド
 - テスト実行: `uv run pytest`
