@@ -12,10 +12,13 @@ from epaper_palette_dither.infrastructure.gamut_mapping import (
     _hue_diff,
     _hsl_to_rgb_batch,
     _is_inside_tetrahedron,
+    _palette_to_lab_vertices,
     _project_to_tetrahedron_surface,
     _rgb_to_hsl_batch,
     anti_saturate,
     anti_saturate_centroid,
+    anti_saturate_centroid_lab,
+    anti_saturate_lab,
     apply_illuminant,
     gamut_map,
 )
@@ -254,6 +257,40 @@ _PALETTE_VERTS = np.array(
     [[c.r / 255.0, c.g / 255.0, c.b / 255.0] for c in EINK_PALETTE],
     dtype=np.float64,
 )
+
+
+class TestPaletteToLabVertices:
+    """_palette_to_lab_vertices のテスト。"""
+
+    def test_shape(self) -> None:
+        """出力の shape が (4, 3)。"""
+        verts = _palette_to_lab_vertices(EINK_PALETTE)
+        assert verts.shape == (4, 3)
+        assert verts.dtype == np.float64
+
+    def test_white_lab(self) -> None:
+        """白の Lab 値: L*≈100, a*≈0, b*≈0。"""
+        verts = _palette_to_lab_vertices(EINK_PALETTE)
+        # EINK_PALETTE[0] = White(255,255,255)
+        np.testing.assert_allclose(verts[0, 0], 100.0, atol=0.5)
+        np.testing.assert_allclose(verts[0, 1], 0.0, atol=1.0)
+        np.testing.assert_allclose(verts[0, 2], 0.0, atol=1.0)
+
+    def test_black_lab(self) -> None:
+        """黒の Lab 値: L*≈0, a*≈0, b*≈0。"""
+        verts = _palette_to_lab_vertices(EINK_PALETTE)
+        # EINK_PALETTE[1] = Black(0,0,0)
+        np.testing.assert_allclose(verts[1, 0], 0.0, atol=0.5)
+        np.testing.assert_allclose(verts[1, 1], 0.0, atol=1.0)
+        np.testing.assert_allclose(verts[1, 2], 0.0, atol=1.0)
+
+    def test_tetrahedron_non_degenerate(self) -> None:
+        """Lab 四面体が非縮退（正の体積を持つ）。"""
+        verts = _palette_to_lab_vertices(EINK_PALETTE)
+        # 体積 = |det([v1-v0, v2-v0, v3-v0])| / 6
+        d = np.array([verts[1] - verts[0], verts[2] - verts[0], verts[3] - verts[0]])
+        volume = abs(np.linalg.det(d)) / 6.0
+        assert volume > 1000, f"Lab 四面体の体積が小さすぎる: {volume}"
 
 
 class TestTetrahedronHelpers:
@@ -666,6 +703,276 @@ class TestAntiSaturateCentroid:
         assert inside.all(), (
             f"表面外のピクセル: {pixels[~inside]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Lab 空間ガマットマッピング テスト
+# ---------------------------------------------------------------------------
+
+# Lab 空間のパレット頂点
+_PALETTE_LAB_VERTS = _palette_to_lab_vertices(EINK_PALETTE)
+
+
+def _is_inside_tetrahedron_relaxed(
+    points: np.ndarray,
+    face_vertices: np.ndarray,
+    face_normals: np.ndarray,
+    tolerance: float = 1.0,
+) -> np.ndarray:
+    """Lab→RGB→Lab 往復の丸め誤差を許容する内部判定。"""
+    inside = np.ones(points.shape[0], dtype=np.bool_)
+    for i in range(4):
+        v0 = face_vertices[i, 0]
+        diff = points - v0[np.newaxis, :]
+        dot = np.sum(diff * face_normals[i][np.newaxis, :], axis=1)
+        inside &= dot <= tolerance
+    return inside
+
+
+class TestAntiSaturateLab:
+    """anti_saturate_lab のテスト。"""
+
+    def test_output_shape_and_dtype(self) -> None:
+        """出力のshape/dtypeが入力と一致。"""
+        rgb = np.random.default_rng(42).integers(0, 256, (10, 15, 3), dtype=np.uint8)
+        result = anti_saturate_lab(rgb, EINK_PALETTE)
+        assert result.shape == (10, 15, 3)
+        assert result.dtype == np.uint8
+
+    def test_palette_vertices_unchanged(self) -> None:
+        """パレット頂点は変化しない（±2許容）。"""
+        for color in EINK_PALETTE:
+            rgb = np.full((2, 2, 3), 0, dtype=np.uint8)
+            rgb[:, :, 0] = color.r
+            rgb[:, :, 1] = color.g
+            rgb[:, :, 2] = color.b
+            result = anti_saturate_lab(rgb, EINK_PALETTE)
+            diff = np.abs(result.astype(int) - rgb.astype(int))
+            assert diff.max() <= 2, f"パレット色 {color} が変化: diff={diff.max()}"
+
+    def test_gray_axis_unchanged(self) -> None:
+        """グレー軸上の点は変化しない（±2許容）。"""
+        for val in [0, 64, 128, 192, 255]:
+            rgb = np.full((2, 2, 3), val, dtype=np.uint8)
+            result = anti_saturate_lab(rgb, EINK_PALETTE)
+            diff = np.abs(result.astype(int) - rgb.astype(int))
+            assert diff.max() <= 2, f"グレー {val} が変化: diff={diff.max()}"
+
+    def test_blue_moves_toward_gray(self) -> None:
+        """青はグレー方向に移動する。"""
+        rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+        rgb[:, :, 2] = 255  # 純青
+
+        result = anti_saturate_lab(rgb, EINK_PALETTE)
+        r, g, b = int(result[0, 0, 0]), int(result[0, 0, 1]), int(result[0, 0, 2])
+        assert r > 0 or g > 0, f"グレー方向に移動していない: R={r}, G={g}, B={b}"
+
+    def test_output_in_valid_range(self) -> None:
+        """出力値が0-255範囲内。"""
+        rgb = np.random.default_rng(99).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        result = anti_saturate_lab(rgb, EINK_PALETTE)
+        assert result.min() >= 0
+        assert result.max() <= 255
+
+    def test_1x1_image(self) -> None:
+        """1x1画像が正常に処理される。"""
+        rgb = np.array([[[0, 0, 255]]], dtype=np.uint8)
+        result = anti_saturate_lab(rgb, EINK_PALETTE)
+        assert result.shape == (1, 1, 3)
+        assert result.dtype == np.uint8
+
+    def test_output_inside_lab_tetrahedron(self) -> None:
+        """射影結果が Lab 四面体内部にある（Lab→RGB→Lab 往復誤差を許容）。"""
+        from epaper_palette_dither.infrastructure.color_space import rgb_to_lab_batch
+
+        extremes = np.array(
+            [
+                [[0, 0, 255], [0, 200, 0]],
+                [[255, 0, 255], [0, 255, 255]],
+            ],
+            dtype=np.uint8,
+        )
+        result = anti_saturate_lab(extremes, EINK_PALETTE)
+
+        face_verts, face_normals = _build_tetrahedron_faces(_PALETTE_LAB_VERTS)
+        lab_pixels = rgb_to_lab_batch(result).reshape(-1, 3)
+        inside = _is_inside_tetrahedron_relaxed(
+            lab_pixels, face_verts, face_normals, tolerance=1.0,
+        )
+        assert inside.all(), f"Lab 四面体外のピクセル: {lab_pixels[~inside]}"
+
+
+class TestAntiSaturateCentroidLab:
+    """anti_saturate_centroid_lab のテスト。"""
+
+    def test_output_shape_and_dtype(self) -> None:
+        """出力のshape/dtypeが入力と一致。"""
+        rgb = np.random.default_rng(42).integers(
+            0, 256, (10, 15, 3), dtype=np.uint8,
+        )
+        result = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+        assert result.shape == (10, 15, 3)
+        assert result.dtype == np.uint8
+
+    def test_palette_vertices_unchanged(self) -> None:
+        """パレット頂点は変化しない（±2許容）。"""
+        for color in EINK_PALETTE:
+            rgb = np.full((2, 2, 3), 0, dtype=np.uint8)
+            rgb[:, :, 0] = color.r
+            rgb[:, :, 1] = color.g
+            rgb[:, :, 2] = color.b
+            result = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+            diff = np.abs(result.astype(int) - rgb.astype(int))
+            assert diff.max() <= 2, f"パレット色 {color} が変化: diff={diff.max()}"
+
+    def test_gray_axis_unchanged(self) -> None:
+        """グレー軸上の点は変化しない（±2許容）。"""
+        for val in [0, 64, 128, 192, 255]:
+            rgb = np.full((2, 2, 3), val, dtype=np.uint8)
+            result = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+            diff = np.abs(result.astype(int) - rgb.astype(int))
+            assert diff.max() <= 2, f"グレー {val} が変化: diff={diff.max()}"
+
+    def test_blue_has_warm_tint(self) -> None:
+        """青の射影結果が暖色寄り。"""
+        rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+        rgb[:, :, 2] = 255
+
+        result = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+        r, g, b = int(result[0, 0, 0]), int(result[0, 0, 1]), int(result[0, 0, 2])
+        assert r > b, f"暖色成分なし: R={r}, G={g}, B={b}"
+
+    def test_output_in_valid_range(self) -> None:
+        """出力値が0-255範囲内。"""
+        rgb = np.random.default_rng(99).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        result = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+        assert result.min() >= 0
+        assert result.max() <= 255
+
+    def test_different_from_rgb_version(self) -> None:
+        """RGB版と異なる結果を返す（Lab空間の効果確認）。"""
+        rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+        rgb[:, :, 2] = 255  # 純青
+
+        result_rgb = anti_saturate_centroid(rgb, EINK_PALETTE)
+        result_lab = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+        assert not np.array_equal(result_rgb, result_lab), (
+            "Lab版とRGB版で結果が同一"
+        )
+
+    def test_output_inside_lab_tetrahedron(self) -> None:
+        """射影結果が Lab 四面体内部にある（Lab→RGB→Lab 往復誤差を許容）。"""
+        from epaper_palette_dither.infrastructure.color_space import rgb_to_lab_batch
+
+        extremes = np.array(
+            [
+                [[0, 0, 255], [0, 200, 0]],
+                [[255, 0, 255], [0, 255, 255]],
+            ],
+            dtype=np.uint8,
+        )
+        result = anti_saturate_centroid_lab(extremes, EINK_PALETTE)
+
+        face_verts, face_normals = _build_tetrahedron_faces(_PALETTE_LAB_VERTS)
+        lab_pixels = rgb_to_lab_batch(result).reshape(-1, 3)
+        inside = _is_inside_tetrahedron_relaxed(
+            lab_pixels, face_verts, face_normals, tolerance=1.0,
+        )
+        assert inside.all(), f"Lab 四面体外のピクセル: {lab_pixels[~inside]}"
+
+
+# ---------------------------------------------------------------------------
+# 知覚品質比較テスト（Lab vs RGB）
+# ---------------------------------------------------------------------------
+
+
+class TestPerceptualQuality:
+    """Lab 版が RGB 版と比較して知覚的品質を維持/改善することを確認。"""
+
+    @staticmethod
+    def _ciede2000_pixel(
+        rgb1: tuple[int, int, int],
+        rgb2: tuple[int, int, int],
+    ) -> float:
+        """2ピクセル間の CIEDE2000 距離。"""
+        from epaper_palette_dither.domain.color import RGB as RGBColor, ciede2000, rgb_to_lab as _rtl
+        lab1 = _rtl(RGBColor(*rgb1))
+        lab2 = _rtl(RGBColor(*rgb2))
+        return ciede2000(lab1, lab2)
+
+    def test_anti_sat_lab_ciede2000_not_worse(self) -> None:
+        """Anti-Sat Lab 版の CIEDE2000 距離が RGB 版より大幅に悪化しない。
+
+        複数テストカラーで、Lab 版の合計 CIEDE2000 距離が
+        RGB 版の 1.2 倍以内であることを確認（soft assertion）。
+        """
+        test_colors = [
+            (0, 0, 255),     # 純青
+            (0, 200, 0),     # 純緑
+            (255, 0, 255),   # マゼンタ
+            (0, 255, 255),   # シアン
+            (128, 0, 255),   # パープル
+        ]
+
+        total_rgb = 0.0
+        total_lab = 0.0
+
+        for color in test_colors:
+            rgb = np.full((1, 1, 3), 0, dtype=np.uint8)
+            rgb[0, 0] = color
+
+            result_rgb = anti_saturate(rgb, EINK_PALETTE)
+            result_lab = anti_saturate_lab(rgb, EINK_PALETTE)
+
+            d_rgb = self._ciede2000_pixel(color, tuple(result_rgb[0, 0]))
+            d_lab = self._ciede2000_pixel(color, tuple(result_lab[0, 0]))
+
+            total_rgb += d_rgb
+            total_lab += d_lab
+
+        # Lab 版の合計距離が RGB 版の 1.2 倍以内
+        assert total_lab <= total_rgb * 1.2, (
+            f"Lab版が大幅に悪化: Lab合計={total_lab:.1f}, RGB合計={total_rgb:.1f}"
+        )
+
+    def test_centroid_lab_ciede2000_not_worse(self) -> None:
+        """Centroid Clip Lab 版の CIEDE2000 距離が RGB 版より大幅に悪化しない。"""
+        test_colors = [
+            (0, 0, 255),
+            (0, 200, 0),
+            (255, 0, 255),
+            (0, 255, 255),
+            (128, 0, 255),
+        ]
+
+        total_rgb = 0.0
+        total_lab = 0.0
+
+        for color in test_colors:
+            rgb = np.full((1, 1, 3), 0, dtype=np.uint8)
+            rgb[0, 0] = color
+
+            result_rgb = anti_saturate_centroid(rgb, EINK_PALETTE)
+            result_lab = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+
+            d_rgb = self._ciede2000_pixel(color, tuple(result_rgb[0, 0]))
+            d_lab = self._ciede2000_pixel(color, tuple(result_lab[0, 0]))
+
+            total_rgb += d_rgb
+            total_lab += d_lab
+
+        assert total_lab <= total_rgb * 1.2, (
+            f"Lab版が大幅に悪化: Lab合計={total_lab:.1f}, RGB合計={total_rgb:.1f}"
+        )
+
+    def test_lab_versions_produce_different_results(self) -> None:
+        """Anti-Sat と Centroid Clip の Lab 版が異なる結果を返す。"""
+        rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+        rgb[:, :, 2] = 255  # 純青
+
+        result_as = anti_saturate_lab(rgb, EINK_PALETTE)
+        result_cc = anti_saturate_centroid_lab(rgb, EINK_PALETTE)
+        assert not np.array_equal(result_as, result_cc)
 
 
 # ---------------------------------------------------------------------------

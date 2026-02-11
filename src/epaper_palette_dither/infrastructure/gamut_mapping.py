@@ -14,7 +14,8 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from epaper_palette_dither.domain.color import RGB
+from epaper_palette_dither.domain.color import RGB, rgb_to_lab
+from epaper_palette_dither.infrastructure.color_space import lab_to_rgb_batch, rgb_to_lab_batch
 
 # デフォルトの色相許容幅（0〜1スケール、1=360°）
 _DEFAULT_HUE_TOLERANCE = 60.0 / 360.0
@@ -491,6 +492,24 @@ def _clip_via_centroid(
     return best_point
 
 
+def _palette_to_lab_vertices(
+    palette: Sequence[RGB],
+) -> npt.NDArray[np.float64]:
+    """パレット RGB → Lab 頂点配列を返す。
+
+    Args:
+        palette: パレット色のシーケンス（4色）
+
+    Returns:
+        (4, 3) の float64 配列 (L*, a*, b*)
+    """
+    labs = []
+    for c in palette:
+        lab = rgb_to_lab(c)
+        labs.append([lab.l, lab.a, lab.b])
+    return np.array(labs, dtype=np.float64)
+
+
 def anti_saturate(
     rgb_array: npt.NDArray[np.uint8],
     palette: Sequence[RGB],
@@ -594,6 +613,99 @@ def anti_saturate_centroid(
     # 0-255 に変換
     result = np.clip(pixels * 255.0 + 0.5, 0, 255).astype(np.uint8)
     return result.reshape(h, w, 3)
+
+
+def anti_saturate_lab(
+    rgb_array: npt.NDArray[np.uint8],
+    palette: Sequence[RGB],
+) -> npt.NDArray[np.uint8]:
+    """Lab 空間 Anti-Saturation ガマットマッピング。
+
+    RGB→Lab 変換後、Lab 空間でパレット四面体の表面最近点射影を行い、
+    Lab→RGB に戻す。ディザリング（CIEDE2000）と同じ知覚空間で処理される。
+
+    Args:
+        rgb_array: (H, W, 3) の uint8 配列 (RGB)
+        palette: パレット色のシーケンス（4色）
+
+    Returns:
+        (H, W, 3) の uint8 配列 (RGB)
+    """
+    h, w = rgb_array.shape[:2]
+
+    # Lab 空間のパレット頂点
+    lab_vertices = _palette_to_lab_vertices(palette)
+
+    # 四面体構築（Lab 座標）
+    face_verts, face_normals = _build_tetrahedron_faces(lab_vertices)
+
+    # RGB → Lab
+    lab_array = rgb_to_lab_batch(rgb_array)
+    pixels = lab_array.reshape(-1, 3)
+
+    # 内部/外部判定
+    inside = _is_inside_tetrahedron(pixels, face_verts, face_normals)
+
+    # 外部ピクセルのみ処理
+    outside_mask = ~inside
+    outside_indices = np.where(outside_mask)[0]
+
+    if outside_indices.size > 0:
+        outside_pts = pixels[outside_indices]
+        projected = _project_to_tetrahedron_surface(outside_pts, face_verts)
+        pixels[outside_indices] = projected
+
+    # Lab → RGB
+    lab_result = pixels.reshape(h, w, 3)
+    return lab_to_rgb_batch(lab_result)
+
+
+def anti_saturate_centroid_lab(
+    rgb_array: npt.NDArray[np.uint8],
+    palette: Sequence[RGB],
+) -> npt.NDArray[np.uint8]:
+    """Lab 空間 Centroid Clip ガマットマッピング。
+
+    RGB→Lab 変換後、Lab 空間でパレット四面体の重心方向レイキャストを行い、
+    Lab→RGB に戻す。ディザリング（CIEDE2000）と同じ知覚空間で処理される。
+
+    Args:
+        rgb_array: (H, W, 3) の uint8 配列 (RGB)
+        palette: パレット色のシーケンス（4色）
+
+    Returns:
+        (H, W, 3) の uint8 配列 (RGB)
+    """
+    h, w = rgb_array.shape[:2]
+
+    # Lab 空間のパレット頂点
+    lab_vertices = _palette_to_lab_vertices(palette)
+
+    # 四面体構築（Lab 座標）
+    face_verts, face_normals = _build_tetrahedron_faces(lab_vertices)
+    centroid = lab_vertices.mean(axis=0)
+
+    # RGB → Lab
+    lab_array = rgb_to_lab_batch(rgb_array)
+    pixels = lab_array.reshape(-1, 3)
+
+    # 内部/外部判定
+    inside = _is_inside_tetrahedron(pixels, face_verts, face_normals)
+
+    # 外部ピクセルのみ処理
+    outside_mask = ~inside
+    outside_indices = np.where(outside_mask)[0]
+
+    if outside_indices.size > 0:
+        outside_pts = pixels[outside_indices]
+        clipped = _clip_via_centroid(
+            outside_pts, centroid, face_verts, face_normals,
+        )
+        pixels[outside_indices] = clipped
+
+    # Lab → RGB
+    lab_result = pixels.reshape(h, w, 3)
+    return lab_to_rgb_batch(lab_result)
 
 
 def gamut_map(
