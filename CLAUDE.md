@@ -64,15 +64,17 @@ src/epaper_palette_dither/
 │   └── image_model.py        # ColorMode(enum), DisplayPreset, ImageSpec
 ├── application/          # アプリケーション層（ユースケース）
 │   ├── dither_service.py     # DitherService（ディザリング実行、ErrClamp/RedPen/YellowPen対応）
-│   └── image_converter.py    # ImageConverter（リサイズ→色処理→ディザ パイプライン、品質パラメータ管理）
+│   ├── image_converter.py    # ImageConverter（リサイズ→色処理→ディザ パイプライン、品質パラメータ管理）
+│   └── reconvert_service.py  # ReconvertService（逆ディザリング: Blur→逆ガマット→自動輝度補正）
 ├── infrastructure/       # インフラ層（Pillow, NumPy, ファイルI/O）
-│   ├── color_space.py        # RGB⇔Lab バッチ変換
+│   ├── color_space.py        # sRGB⇔Linear, RGB⇔Lab バッチ変換
 │   ├── gamut_mapping.py      # gamut_map, anti_saturate, anti_saturate_centroid, apply_illuminant
+│   ├── inverse_gamut_mapping.py  # inverse_gamut_map, inverse_apply_illuminant
 │   └── image_io.py           # load/save/resize/rotate
 └── presentation/         # プレゼンテーション層（PyQt6 GUI）
-    ├── controls.py           # ControlPanel（モード選択, パラメータ, ボタン）
+    ├── controls.py           # ControlPanel（2段: 変換パラメータ + Reconvertパラメータ）
     ├── image_viewer.py       # ImageViewer（D&D対応画像表示）
-    └── main_window.py        # MainWindow（左右並列ビューア + ワーカー）
+    └── main_window.py        # MainWindow（3パネル並列 + ConvertWorker/ReconvertWorker）
 ```
 
 ## Scriptable (iPhone版)
