@@ -41,7 +41,7 @@ class ImageConverter:
         self._dither_service = dither_service or DitherService()
         self._palette = palette
         self._gamut_strength: float = 0.7
-        self._color_mode: ColorMode = ColorMode.GRAYOUT
+        self._color_mode: ColorMode = ColorMode.ILLUMINANT
         self._illuminant_red: float = 1.0
         self._illuminant_yellow: float = 1.0
         self._illuminant_white: float = 1.0
