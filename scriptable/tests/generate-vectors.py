@@ -28,6 +28,8 @@ from epaper_palette_dither.domain.color import (
 from epaper_palette_dither.infrastructure.gamut_mapping import (
     anti_saturate,
     anti_saturate_centroid,
+    anti_saturate_lab,
+    anti_saturate_centroid_lab,
     apply_illuminant,
     gamut_map,
 )
@@ -156,6 +158,20 @@ def generate_gamut_vectors() -> dict:
     # --- Centroid Clip ---
     result = anti_saturate_centroid(test_image, palette)
     vectors["centroidClip"] = {
+        "input": test_image.tolist(),
+        "expected": result.tolist(),
+    }
+
+    # --- Anti-Saturation Lab ---
+    result = anti_saturate_lab(test_image, palette)
+    vectors["antiSaturateLab"] = {
+        "input": test_image.tolist(),
+        "expected": result.tolist(),
+    }
+
+    # --- Centroid Clip Lab ---
+    result = anti_saturate_centroid_lab(test_image, palette)
+    vectors["centroidClipLab"] = {
         "input": test_image.tolist(),
         "expected": result.tolist(),
     }

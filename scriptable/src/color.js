@@ -43,6 +43,19 @@ function _labF(t) {
 }
 
 /**
+ * Lab逆変換の補助関数（_labFの逆関数）。
+ * @param {number} t
+ * @returns {number}
+ */
+function _labFInv(t) {
+  const delta = 6.0 / 29.0;
+  if (t > delta) {
+    return t * t * t;
+  }
+  return 3.0 * delta * delta * (t - 4.0 / 29.0);
+}
+
+/**
  * RGB(0-255)をCIE L*a*b*に変換。D65光源基準。
  * @param {number} r - Red (0-255)
  * @param {number} g - Green (0-255)
@@ -73,6 +86,43 @@ function rgbToLab(r, g, b) {
   const bStar = 200.0 * (fy - fz);
 
   return [L, a, bStar];
+}
+
+/**
+ * CIE L*a*b* をRGB(0-255)に変換。D65光源基準。
+ * Python lab_to_rgb_batch (color_space.py) の単ピクセル版。
+ * @param {number} L - L* (0-100)
+ * @param {number} a - a*
+ * @param {number} bStar - b*
+ * @returns {number[]} [R, G, B] (0-255, clamped)
+ */
+function labToRgb(L, a, bStar) {
+  // Lab → XYZ
+  const fy = (L + 16.0) / 116.0;
+  const fx = a / 500.0 + fy;
+  const fz = fy - bStar / 200.0;
+
+  const x = 0.95047 * _labFInv(fx);
+  const y = 1.00000 * _labFInv(fy);
+  const z = 1.08883 * _labFInv(fz);
+
+  // XYZ → リニアRGB
+  const rLin =  3.2404542 * x - 1.5371385 * y - 0.4985314 * z;
+  const gLin = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z;
+  const bLin =  0.0556434 * x - 0.2040259 * y + 1.0572252 * z;
+
+  // リニアRGB → sRGB
+  function toSrgb(c) {
+    c = Math.max(0, Math.min(1, c));
+    if (c <= 0.0031308) return 12.92 * c;
+    return 1.055 * Math.pow(c, 1.0 / 2.4) - 0.055;
+  }
+
+  return [
+    Math.max(0, Math.min(255, Math.round(toSrgb(rLin) * 255))),
+    Math.max(0, Math.min(255, Math.round(toSrgb(gLin) * 255))),
+    Math.max(0, Math.min(255, Math.round(toSrgb(bLin) * 255))),
+  ];
 }
 
 /**
@@ -212,6 +262,6 @@ function findNearestColor(r, g, b, palette, redPenalty, yellowPenalty, brightnes
 // Export for test and module usage
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    EINK_PALETTE, srgbToLinear, rgbToLab, ciede2000, findNearestColor
+    EINK_PALETTE, srgbToLinear, rgbToLab, labToRgb, ciede2000, findNearestColor
   };
 }

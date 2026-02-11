@@ -449,6 +449,87 @@ function antiSaturateCentroid(imageData, palette) {
   return { data: out, width, height };
 }
 
+// ========== Anti-Saturate Lab (Lab空間四面体最近点射影) ==========
+
+/**
+ * Lab空間 Anti-Saturation ガマットマッピング。
+ * RGB→Lab変換後、Lab空間でパレット四面体の表面最近点射影を行い、Lab→RGBに戻す。
+ * @param {{data: Uint8ClampedArray, width: number, height: number}} imageData
+ * @param {number[][]} palette
+ * @returns {{data: Uint8ClampedArray, width: number, height: number}}
+ */
+function antiSaturateLab(imageData, palette) {
+  palette = palette || EINK_PALETTE;
+  const { data, width, height } = imageData;
+  const out = new Uint8ClampedArray(data.length);
+
+  // パレット Lab 頂点をプリコンピュート
+  const labVertices = palette.map(c => rgbToLab(c[0], c[1], c[2]));
+  const { faceVerts, faceNormals } = _buildTetrahedronFaces(labVertices);
+
+  for (let i = 0; i < data.length; i += 4) {
+    const lab = rgbToLab(data[i], data[i+1], data[i+2]);
+
+    let resultLab;
+    if (_isInsideTetrahedron(lab, faceVerts, faceNormals)) {
+      resultLab = lab;
+    } else {
+      resultLab = _projectToTetrahedronSurface(lab, faceVerts);
+    }
+
+    const rgb = labToRgb(resultLab[0], resultLab[1], resultLab[2]);
+    out[i]   = rgb[0];
+    out[i+1] = rgb[1];
+    out[i+2] = rgb[2];
+    out[i+3] = 255;
+  }
+
+  return { data: out, width, height };
+}
+
+// ========== Centroid Clip Lab (Lab空間重心方向レイキャスト) ==========
+
+/**
+ * Lab空間 Centroid Clip ガマットマッピング。
+ * RGB→Lab変換後、Lab空間でパレット四面体の重心方向レイキャストを行い、Lab→RGBに戻す。
+ * @param {{data: Uint8ClampedArray, width: number, height: number}} imageData
+ * @param {number[][]} palette
+ * @returns {{data: Uint8ClampedArray, width: number, height: number}}
+ */
+function antiSaturateCentroidLab(imageData, palette) {
+  palette = palette || EINK_PALETTE;
+  const { data, width, height } = imageData;
+  const out = new Uint8ClampedArray(data.length);
+
+  // パレット Lab 頂点をプリコンピュート
+  const labVertices = palette.map(c => rgbToLab(c[0], c[1], c[2]));
+  const { faceVerts, faceNormals } = _buildTetrahedronFaces(labVertices);
+  const centroid = [
+    labVertices.reduce((s,v) => s+v[0], 0) / 4,
+    labVertices.reduce((s,v) => s+v[1], 0) / 4,
+    labVertices.reduce((s,v) => s+v[2], 0) / 4,
+  ];
+
+  for (let i = 0; i < data.length; i += 4) {
+    const lab = rgbToLab(data[i], data[i+1], data[i+2]);
+
+    let resultLab;
+    if (_isInsideTetrahedron(lab, faceVerts, faceNormals)) {
+      resultLab = lab;
+    } else {
+      resultLab = _clipViaCentroid(lab, centroid, faceVerts, faceNormals);
+    }
+
+    const rgb = labToRgb(resultLab[0], resultLab[1], resultLab[2]);
+    out[i]   = rgb[0];
+    out[i+1] = rgb[1];
+    out[i+2] = rgb[2];
+    out[i+3] = 255;
+  }
+
+  return { data: out, width, height };
+}
+
 // ========== Illuminant ==========
 
 /**
@@ -499,6 +580,7 @@ function applyIlluminant(imageData, rScale, gScale, bScale, whitePreserve) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     rgbToHsl, hslToRgb, gamutMapGrayout, antiSaturate,
-    antiSaturateCentroid, applyIlluminant,
+    antiSaturateCentroid, antiSaturateLab, antiSaturateCentroidLab,
+    applyIlluminant,
   };
 }
