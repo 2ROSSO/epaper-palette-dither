@@ -71,6 +71,20 @@ uv run pytest
 | **Blur** | 1 | 1–20 | ブラー半径。大きいほど滑らかだがディテール減少 |
 | **Bright** | 1.00 | 0.50–2.00 | 手動明るさ調整（自動補正に乗算） |
 
+### パラメータ自動最適化（Optimize）
+Optuna TPE (Tree-structured Parzen Estimator) により、Convert パラメータを自動探索して元画像との類似度を最大化する。
+
+- **評価指標**: PSNR・SSIM・Lab ΔE・Histogram Correlation の4メトリクス複合スコア
+- **探索対象**: カラーモードに応じた Convert パラメータのみ（Reconvert は blur=1, bright=1.0 固定）
+- **Trial 数**: Optimize ボタン右クリックで変更可能（25 / 50 / 100 / 200 / 500、初期値 50）
+- **初期値**: 現在の UI パラメータを初期候補として登録（step にスナップ）
+
+| ColorMode | 探索パラメータ数 | 探索対象 |
+|-----------|-----------------|----------|
+| Illuminant | 6 | illuminant_red/yellow/white, error_clamp, red_penalty, yellow_penalty |
+| Grayout | 4 | gamut_strength, error_clamp, red_penalty, yellow_penalty |
+| Anti-Saturation / Centroid Clip | 3 | error_clamp, red_penalty, yellow_penalty |
+
 ### GUI
 - **3パネル並列表示**: Original / Dithered Preview / Reconverted を横並びで比較
 - **ガマットのみプレビュー**: ディザリングなしでカラーモードの効果を確認
@@ -94,6 +108,7 @@ uv run pytest
 - PyQt6 (GUI)
 - Pillow (画像I/O)
 - NumPy (数値計算)
+- Optuna (パラメータ自動最適化)
 - pytest + pytest-qt (テスト)
 
 ### iPhone版 (Scriptable)
@@ -112,12 +127,14 @@ src/epaper_palette_dither/
 ├── application/          # アプリケーション層（ユースケース）
 │   ├── dither_service.py     # ディザリングサービス（ErrClamp/RedPen/YellowPen対応）
 │   ├── image_converter.py    # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ管理）
+│   ├── optimizer_service.py  # Optuna TPE 自動最適化（Convertパラメータ探索）
 │   └── reconvert_service.py  # 逆ディザリング（Blur→逆ガマット→自動輝度補正）
 ├── infrastructure/       # インフラ層（Pillow, NumPy, ファイルI/O）
 │   ├── color_space.py        # sRGB⇔Linear, RGB⇔Lab バッチ変換
 │   ├── gamut_mapping.py      # Grayout, Anti-Saturation, Centroid Clip, Illuminant
-│   ├── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
-│   └── image_io.py           # 画像読込/保存/リサイズ/回転
+│   ├── image_io.py           # 画像読込/保存/リサイズ/回転
+│   ├── image_metrics.py      # PSNR, SSIM, Lab ΔE, Histogram Correlation, 複合スコア
+│   └── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
 └── presentation/         # プレゼンテーション層（PyQt6 GUI）
     ├── controls.py           # パラメータ制御パネル（2段構成: 変換 + Reconvert）
     ├── image_viewer.py       # 画像表示ウィジェット（D&D対応）
