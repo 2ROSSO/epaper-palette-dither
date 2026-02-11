@@ -36,3 +36,4 @@ data/outputs/
 
 # Reference repositories
 arrayfy_repo/
+.reference/
