@@ -1,6 +1,6 @@
 """メインウィンドウ。
 
-左右並列で元画像とディザリング結果を表示。
+3パネル並列で元画像・ディザリング結果・Reconvert結果を表示。
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
-    QHBoxLayout,
     QVBoxLayout,
     QSplitter,
     QStatusBar,
@@ -23,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.application.image_converter import ImageConverter
+from epaper_palette_dither.application.reconvert_service import ReconvertService
 from epaper_palette_dither.domain.image_model import ImageSpec
 from epaper_palette_dither.infrastructure.image_io import load_image, rotate_image_cw90, save_image
 from epaper_palette_dither.presentation.image_viewer import ImageViewer
@@ -68,6 +68,46 @@ class ConvertWorker(QThread):
             self.error.emit(str(e))
 
 
+class ReconvertWorker(QThread):
+    """バックグラウンドでReconvert処理を実行するワーカー。"""
+
+    finished = pyqtSignal(np.ndarray)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str, float)
+
+    def __init__(
+        self,
+        service: ReconvertService,
+        dithered: np.ndarray,
+        blur_radius: int,
+        converter: ImageConverter,
+        brightness: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._dithered = dithered
+        self._blur_radius = blur_radius
+        self._converter = converter
+        self._brightness = brightness
+
+    def run(self) -> None:
+        try:
+            result = self._service.reconvert_array(
+                self._dithered,
+                blur_radius=self._blur_radius,
+                color_mode=self._converter.color_mode,
+                gamut_strength=self._converter.gamut_strength,
+                illuminant_red=self._converter.illuminant_red,
+                illuminant_yellow=self._converter.illuminant_yellow,
+                illuminant_white=self._converter.illuminant_white,
+                brightness=self._brightness,
+                progress=lambda s, p: self.progress.emit(s, p),
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MainWindow(QMainWindow):
     """E-Paper Palette Dither メインウィンドウ。"""
 
@@ -75,13 +115,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("E-Paper Palette Dither")
         self.setMinimumSize(800, 500)
-        self.resize(1000, 600)
+        self.resize(1200, 600)
 
         self._source_image: np.ndarray | None = None
         self._result_image: np.ndarray | None = None
+        self._reconvert_image: np.ndarray | None = None
         self._worker: ConvertWorker | None = None
+        self._reconvert_worker: ReconvertWorker | None = None
 
         self._converter = ImageConverter(DitherService())
+        self._reconvert_service = ReconvertService()
 
         self._setup_ui()
 
@@ -92,7 +135,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
 
-        # --- 画像ビューア（左右並列）---
+        # --- 画像ビューア（3パネル並列）---
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # 左: 元画像
@@ -108,22 +151,36 @@ class MainWindow(QMainWindow):
         self._source_viewer.image_dropped.connect(self._on_image_dropped)
         left_layout.addWidget(self._source_viewer)
 
-        # 右: ディザリング結果
+        # 中: ディザリング結果
+        center_panel = QWidget()
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(2)
+        center_label = QLabel("Dithered Preview")
+        center_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #555;")
+        center_layout.addWidget(center_label)
+        self._result_viewer = ImageViewer("プレビュー")
+        self._result_viewer.image_dropped.connect(self._on_image_dropped)
+        center_layout.addWidget(self._result_viewer)
+
+        # 右: Reconvert結果
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(2)
-        right_label = QLabel("Dithered Preview")
+        right_label = QLabel("Reconverted")
         right_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         right_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #555;")
         right_layout.addWidget(right_label)
-        self._result_viewer = ImageViewer("プレビュー")
-        self._result_viewer.image_dropped.connect(self._on_image_dropped)
-        right_layout.addWidget(self._result_viewer)
+        self._reconvert_viewer = ImageViewer("復元画像")
+        self._reconvert_viewer.image_dropped.connect(self._on_image_dropped)
+        right_layout.addWidget(self._reconvert_viewer)
 
         splitter.addWidget(left_panel)
+        splitter.addWidget(center_panel)
         splitter.addWidget(right_panel)
-        splitter.setSizes([500, 500])
+        splitter.setSizes([400, 400, 400])
         main_layout.addWidget(splitter, stretch=1)
 
         # --- コントロールパネル ---
@@ -132,6 +189,7 @@ class MainWindow(QMainWindow):
         self._controls.gamut_only_clicked.connect(self._on_gamut_only)
         self._controls.rotate_clicked.connect(self._on_rotate)
         self._controls.save_clicked.connect(self._on_save)
+        self._controls.reconvert_clicked.connect(self._on_reconvert)
         self._controls.gamut_strength_changed.connect(self._on_gamut_strength_changed)
         self._controls.color_mode_changed.connect(self._on_color_mode_changed)
         self._controls.illuminant_red_changed.connect(self._on_illuminant_red_changed)
@@ -144,12 +202,13 @@ class MainWindow(QMainWindow):
         self._controls.set_convert_enabled(False)
         self._controls.set_gamut_only_enabled(False)
         self._controls.set_rotate_enabled(False)
+        self._controls.set_reconvert_enabled(False)
         main_layout.addWidget(self._controls)
 
         # --- ステータスバー ---
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
-        self._status_bar.showMessage("Ready — ドラッグ&ドロップまたはCtrl+Oで画像を読み込み")
+        self._status_bar.showMessage("Ready \u2014 ドラッグ&ドロップまたはCtrl+Oで画像を読み込み")
 
         # --- メニューバー ---
         menu_bar = self.menuBar()
@@ -184,13 +243,20 @@ class MainWindow(QMainWindow):
     def _load_image(self, path: str) -> None:
         try:
             self._source_image = load_image(path)
+            # 縦長画像を自動で横向きに回転
+            h, w = self._source_image.shape[:2]
+            if self._controls.auto_rotate and h > w:
+                self._source_image = rotate_image_cw90(self._source_image)
             self._source_viewer.set_image_from_array(self._source_image)
             self._result_viewer.clear_image()
+            self._reconvert_viewer.clear_image()
             self._result_image = None
+            self._reconvert_image = None
             self._controls.set_convert_enabled(True)
             self._controls.set_gamut_only_enabled(True)
             self._controls.set_rotate_enabled(True)
             self._controls.set_save_enabled(False)
+            self._controls.set_reconvert_enabled(False)
             h, w = self._source_image.shape[:2]
             self._status_bar.showMessage(f"読み込み完了: {Path(path).name} ({w}x{h})")
         except Exception as e:
@@ -208,8 +274,11 @@ class MainWindow(QMainWindow):
         self._source_image = rotate_image_cw90(self._source_image)
         self._source_viewer.set_image_from_array(self._source_image)
         self._result_image = None
+        self._reconvert_image = None
         self._result_viewer.clear_image()
+        self._reconvert_viewer.clear_image()
         self._controls.set_save_enabled(False)
+        self._controls.set_reconvert_enabled(False)
         h, w = self._source_image.shape[:2]
         self._status_bar.showMessage(f"回転完了: {w}x{h}")
 
@@ -226,6 +295,7 @@ class MainWindow(QMainWindow):
         self._controls.set_convert_enabled(False)
         self._controls.set_gamut_only_enabled(False)
         self._controls.set_rotate_enabled(False)
+        self._controls.set_reconvert_enabled(False)
         label = "ガマットマッピング中..." if gamut_only else "変換中..."
         self._status_bar.showMessage(label)
 
@@ -243,10 +313,13 @@ class MainWindow(QMainWindow):
     def _on_convert_done(self, result: np.ndarray) -> None:
         self._result_image = result
         self._result_viewer.set_image_from_array(result)
+        self._reconvert_image = None
+        self._reconvert_viewer.clear_image()
         self._controls.set_convert_enabled(True)
         self._controls.set_gamut_only_enabled(True)
         self._controls.set_rotate_enabled(True)
         self._controls.set_save_enabled(True)
+        self._controls.set_reconvert_enabled(True)
         h, w = result.shape[:2]
         self._status_bar.showMessage(f"変換完了: {w}x{h}")
 
@@ -256,6 +329,46 @@ class MainWindow(QMainWindow):
         self._controls.set_rotate_enabled(True)
         QMessageBox.warning(self, "変換エラー", f"変換に失敗しました:\n{message}")
         self._status_bar.showMessage("変換エラー")
+
+    def _on_reconvert(self) -> None:
+        if self._result_image is None:
+            return
+
+        self._controls.set_reconvert_enabled(False)
+        self._controls.set_convert_enabled(False)
+        self._controls.set_gamut_only_enabled(False)
+        self._status_bar.showMessage("Reconvert中...")
+
+        self._reconvert_worker = ReconvertWorker(
+            self._reconvert_service,
+            self._result_image,
+            self._controls.blur_radius,
+            self._converter,
+            brightness=self._controls.brightness,
+        )
+        self._reconvert_worker.progress.connect(self._on_reconvert_progress)
+        self._reconvert_worker.finished.connect(self._on_reconvert_done)
+        self._reconvert_worker.error.connect(self._on_reconvert_error)
+        self._reconvert_worker.start()
+
+    def _on_reconvert_progress(self, stage: str, value: float) -> None:
+        self._status_bar.showMessage(f"Reconvert: {stage} ({int(value * 100)}%)")
+
+    def _on_reconvert_done(self, result: np.ndarray) -> None:
+        self._reconvert_image = result
+        self._reconvert_viewer.set_image_from_array(result)
+        self._controls.set_reconvert_enabled(True)
+        self._controls.set_convert_enabled(True)
+        self._controls.set_gamut_only_enabled(True)
+        h, w = result.shape[:2]
+        self._status_bar.showMessage(f"Reconvert完了: {w}x{h}")
+
+    def _on_reconvert_error(self, message: str) -> None:
+        self._controls.set_reconvert_enabled(True)
+        self._controls.set_convert_enabled(True)
+        self._controls.set_gamut_only_enabled(True)
+        QMessageBox.warning(self, "Reconvertエラー", f"Reconvertに失敗しました:\n{message}")
+        self._status_bar.showMessage("Reconvertエラー")
 
     def _on_gamut_strength_changed(self, strength: float) -> None:
         self._converter.gamut_strength = strength
