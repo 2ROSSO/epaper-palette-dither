@@ -7,7 +7,7 @@ import numpy as np
 
 from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.application.image_converter import ImageConverter
-from epaper_palette_dither.domain.color import EINK_PALETTE
+from epaper_palette_dither.domain.color import EINK_PALETTE, EINK_PALETTE_PERCEIVED
 from epaper_palette_dither.domain.image_model import ColorMode, ImageSpec
 from epaper_palette_dither.infrastructure.image_io import save_image
 
@@ -505,3 +505,128 @@ class TestDitherServiceParams:
 
         # ペナルティありで黄ピクセルが同じか減るはず
         assert yellow_count_with <= yellow_count_no
+
+
+class TestDitherServicePerceived:
+    """知覚パレット対応のディザリングテスト。"""
+
+    def setup_method(self) -> None:
+        self.service = DitherService()
+
+    def test_perceived_output_only_hardware_palette(self) -> None:
+        """知覚パレット有効時も出力はハードウェアパレット色のみ。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(8):
+            for x in range(8):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_perceived_differs_from_normal(self) -> None:
+        """知覚パレット有無で結果が異なる。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result_normal = self.service.dither_array_fast(array, EINK_PALETTE)
+        result_perceived = self.service.dither_array_fast(
+            array, EINK_PALETTE, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        assert not np.array_equal(result_normal, result_perceived)
+
+    def test_perceived_with_params(self) -> None:
+        """知覚パレット + error_clamp + penalty 併用で動作。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE,
+            error_clamp=50, red_penalty=10.0, yellow_penalty=15.0,
+            perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(8):
+            for x in range(8):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_perceived_shape_preserved(self) -> None:
+        """知覚パレット有効時も形状が維持される。"""
+        array = np.zeros((12, 16, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        assert result.shape == (12, 16, 3)
+        assert result.dtype == np.uint8
+
+
+class TestImageConverterPerceived:
+    """ImageConverter の知覚パレット対応テスト。"""
+
+    def test_default_perceived_is_false(self) -> None:
+        """デフォルトでは知覚パレット無効。"""
+        converter = ImageConverter()
+        assert converter.use_perceived_palette is False
+
+    def test_perceived_setter(self) -> None:
+        """use_perceived_palette プロパティのセッター。"""
+        converter = ImageConverter()
+        converter.use_perceived_palette = True
+        assert converter.use_perceived_palette is True
+        converter.use_perceived_palette = False
+        assert converter.use_perceived_palette is False
+
+    def test_perceived_convert_output_palette_only(self) -> None:
+        """知覚パレット有効時も変換結果はハードウェアパレット色のみ。"""
+        array = np.random.default_rng(42).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        converter = ImageConverter()
+        converter.use_perceived_palette = True
+        spec = ImageSpec(target_width=10, target_height=8)
+        result = converter.convert_array(array, spec)
+
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(result.shape[0]):
+            for x in range(result.shape[1]):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_perceived_convert_differs(self) -> None:
+        """知覚パレット有無で変換結果が異なる。"""
+        array = np.random.default_rng(42).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        spec = ImageSpec(target_width=10, target_height=8)
+
+        converter = ImageConverter()
+        result_normal = converter.convert_array(array, spec)
+
+        converter.use_perceived_palette = True
+        result_perceived = converter.convert_array(array, spec)
+
+        assert not np.array_equal(result_normal, result_perceived)
+
+    def test_perceived_gamut_only_unchanged(self) -> None:
+        """簡易版: ガマットマッピングのみは知覚パレットの影響を受けない。"""
+        array = np.random.default_rng(42).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        spec = ImageSpec(target_width=10, target_height=8)
+
+        converter = ImageConverter()
+        result_normal = converter.convert_array_gamut_only(array, spec)
+
+        converter.use_perceived_palette = True
+        result_perceived = converter.convert_array_gamut_only(array, spec)
+
+        # 簡易版ではガマットマッピングに知覚パレットを使わないため結果が同一
+        np.testing.assert_array_equal(result_normal, result_perceived)
+
+    def test_perceived_with_each_color_mode(self) -> None:
+        """全ColorModeで知覚パレット有効時にディザリングが動作する。"""
+        array = np.random.default_rng(42).integers(0, 256, (20, 30, 3), dtype=np.uint8)
+        spec = ImageSpec(target_width=10, target_height=8)
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+
+        for mode in ColorMode:
+            converter = ImageConverter()
+            converter.color_mode = mode
+            converter.use_perceived_palette = True
+            result = converter.convert_array(array, spec)
+
+            assert result.dtype == np.uint8, f"Failed for {mode}"
+            for y in range(result.shape[0]):
+                for x in range(result.shape[1]):
+                    assert tuple(result[y, x]) in palette_set, (
+                        f"Non-palette pixel at ({x},{y}) for {mode}"
+                    )

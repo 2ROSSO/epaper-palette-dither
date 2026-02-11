@@ -40,6 +40,18 @@ EINK_YELLOW = RGB(255, 255, 0)
 
 EINK_PALETTE: tuple[RGB, ...] = (EINK_WHITE, EINK_BLACK, EINK_RED, EINK_YELLOW)
 
+# --- 知覚パレット（e-paper実測値ベース） ---
+
+EINK_WHITE_PERCEIVED = RGB(177, 175, 157)
+EINK_BLACK_PERCEIVED = RGB(46, 38, 43)
+EINK_RED_PERCEIVED = RGB(177, 51, 37)
+EINK_YELLOW_PERCEIVED = RGB(198, 166, 26)
+
+EINK_PALETTE_PERCEIVED: tuple[RGB, ...] = (
+    EINK_WHITE_PERCEIVED, EINK_BLACK_PERCEIVED,
+    EINK_RED_PERCEIVED, EINK_YELLOW_PERCEIVED,
+)
+
 
 # --- RGB → LAB 変換（Pure Python） ---
 
@@ -174,36 +186,65 @@ def ciede2000(lab1: LAB, lab2: LAB) -> float:
     )
 
 
+def find_nearest_color_index(
+    color: RGB,
+    palette: Sequence[RGB] = EINK_PALETTE,
+    red_penalty: float = 0.0,
+    yellow_penalty: float = 0.0,
+    brightness: float = 0.0,
+    perceived_palette: Sequence[RGB] | None = None,
+) -> int:
+    """パレットから最も近い色のインデックスをCIEDE2000で検索。
+
+    Args:
+        color: 検索対象の色
+        palette: 出力用カラーパレット
+        red_penalty: 赤パレット色へのペナルティ係数 (0=無効)
+        yellow_penalty: 黄パレット色へのペナルティ係数 (0=無効)
+        brightness: 正規化輝度 (0.0〜1.0)。ペナルティと組み合わせて使用
+        perceived_palette: 知覚パレット。指定時はCIEDE2000距離を知覚値で計算
+
+    Returns:
+        最近傍色のインデックス
+    """
+    lab = rgb_to_lab(color)
+    dist_palette = perceived_palette if perceived_palette is not None else palette
+    best_idx = 0
+    best_dist = float("inf")
+
+    for i, (p, dp) in enumerate(zip(palette, dist_palette)):
+        dist = ciede2000(lab, rgb_to_lab(dp))
+        # ペナルティ判定は常に出力パレットで行う
+        if red_penalty > 0.0 and p.r > 150 and p.g < 50 and p.b < 50:
+            dist += red_penalty * brightness
+        if yellow_penalty > 0.0 and p.r > 200 and p.g > 200 and p.b < 50:
+            dist += yellow_penalty * (1.0 - brightness)
+        if dist < best_dist:
+            best_dist = dist
+            best_idx = i
+
+    return best_idx
+
+
 def find_nearest_color(
     color: RGB,
     palette: Sequence[RGB] = EINK_PALETTE,
     red_penalty: float = 0.0,
     yellow_penalty: float = 0.0,
     brightness: float = 0.0,
+    perceived_palette: Sequence[RGB] | None = None,
 ) -> RGB:
     """パレットから最も近い色をCIEDE2000で検索。
 
     Args:
         color: 検索対象の色
-        palette: カラーパレット
+        palette: 出力用カラーパレット
         red_penalty: 赤パレット色へのペナルティ係数 (0=無効)
         yellow_penalty: 黄パレット色へのペナルティ係数 (0=無効)
         brightness: 正規化輝度 (0.0〜1.0)。ペナルティと組み合わせて使用
+        perceived_palette: 知覚パレット。指定時はCIEDE2000距離を知覚値で計算
     """
-    lab = rgb_to_lab(color)
-    best_color = palette[0]
-    best_dist = float("inf")
-
-    for p in palette:
-        dist = ciede2000(lab, rgb_to_lab(p))
-        # 赤パレット色 (R>150, G<50, B<50) に明度ベースのペナルティ
-        if red_penalty > 0.0 and p.r > 150 and p.g < 50 and p.b < 50:
-            dist += red_penalty * brightness
-        # 黄パレット色 (R>200, G>200, B<50) に暗部ベースのペナルティ
-        if yellow_penalty > 0.0 and p.r > 200 and p.g > 200 and p.b < 50:
-            dist += yellow_penalty * (1.0 - brightness)
-        if dist < best_dist:
-            best_dist = dist
-            best_color = p
-
-    return best_color
+    idx = find_nearest_color_index(
+        color, palette, red_penalty, yellow_penalty, brightness, perceived_palette,
+    )
+    return palette[idx]

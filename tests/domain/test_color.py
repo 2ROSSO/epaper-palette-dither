@@ -5,11 +5,13 @@ from epaper_palette_dither.domain.color import (
     LAB,
     EINK_BLACK,
     EINK_PALETTE,
+    EINK_PALETTE_PERCEIVED,
     EINK_RED,
     EINK_WHITE,
     EINK_YELLOW,
     ciede2000,
     find_nearest_color,
+    find_nearest_color_index,
     rgb_to_lab,
 )
 
@@ -171,3 +173,81 @@ class TestFindNearestColorYellowPenalty:
         assert find_nearest_color(near_black, yellow_penalty=50.0, brightness=0.0) == EINK_BLACK
         near_white = RGB(250, 250, 250)
         assert find_nearest_color(near_white, yellow_penalty=50.0, brightness=1.0) == EINK_WHITE
+
+
+class TestPerceivedPaletteDefinition:
+    def test_length_matches_output_palette(self) -> None:
+        """知覚パレットと出力パレットの要素数が一致。"""
+        assert len(EINK_PALETTE_PERCEIVED) == len(EINK_PALETTE)
+
+    def test_all_elements_are_rgb(self) -> None:
+        """知覚パレットの全要素がRGB型。"""
+        for color in EINK_PALETTE_PERCEIVED:
+            assert isinstance(color, RGB)
+
+    def test_perceived_values_differ_from_output(self) -> None:
+        """知覚パレットと出力パレットの値が異なる。"""
+        differ_count = sum(
+            1 for p, pp in zip(EINK_PALETTE, EINK_PALETTE_PERCEIVED) if p != pp
+        )
+        assert differ_count > 0
+
+
+class TestFindNearestColorIndex:
+    def test_exact_match_returns_correct_index(self) -> None:
+        """パレット色自体を入力すると正しいインデックス。"""
+        for i, color in enumerate(EINK_PALETTE):
+            assert find_nearest_color_index(color) == i
+
+    def test_result_range(self) -> None:
+        """戻り値が 0〜len(palette)-1。"""
+        test_colors = [RGB(128, 128, 128), RGB(0, 255, 0), RGB(255, 128, 0)]
+        for color in test_colors:
+            idx = find_nearest_color_index(color)
+            assert 0 <= idx < len(EINK_PALETTE)
+
+
+class TestFindNearestColorIndexPerceived:
+    def test_perceived_palette_changes_selection(self) -> None:
+        """知覚パレット使用時に結果が変わるケースがある。"""
+        # 中間的な緑 — 出力パレットでは黒に近いが、知覚パレットでは白に近い
+        color = RGB(0, 110, 0)
+        idx_normal = find_nearest_color_index(color)
+        idx_perceived = find_nearest_color_index(
+            color, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        assert idx_normal != idx_perceived, "知覚パレットで結果が変わるはず"
+
+    def test_perceived_palette_returns_output_palette_index(self) -> None:
+        """知覚パレット使用時もインデックスは出力パレットに対応。"""
+        color = RGB(150, 100, 50)
+        idx = find_nearest_color_index(
+            color, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        assert 0 <= idx < len(EINK_PALETTE)
+        # find_nearest_color と一致
+        result_color = find_nearest_color(
+            color, perceived_palette=EINK_PALETTE_PERCEIVED,
+        )
+        assert result_color == EINK_PALETTE[idx]
+
+
+class TestFindNearestColorBackwardCompat:
+    def test_find_nearest_color_matches_index(self) -> None:
+        """find_nearest_color が find_nearest_color_index のラッパーとして正しい。"""
+        test_colors = [
+            EINK_WHITE, EINK_BLACK, EINK_RED, EINK_YELLOW,
+            RGB(128, 128, 128), RGB(0, 255, 0), RGB(255, 128, 0),
+        ]
+        for color in test_colors:
+            idx = find_nearest_color_index(color)
+            assert find_nearest_color(color) == EINK_PALETTE[idx]
+
+    def test_find_nearest_color_with_penalty_matches_index(self) -> None:
+        """ペナルティ付き find_nearest_color が index 版と整合。"""
+        color = RGB(200, 180, 180)
+        idx = find_nearest_color_index(
+            color, red_penalty=30.0, brightness=0.8,
+        )
+        result = find_nearest_color(color, red_penalty=30.0, brightness=0.8)
+        assert result == EINK_PALETTE[idx]

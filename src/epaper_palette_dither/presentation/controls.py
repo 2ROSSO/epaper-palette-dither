@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QComboBox,
+    QCheckBox,
     QDoubleSpinBox,
     QSpinBox,
     QPushButton,
@@ -37,6 +38,7 @@ class ControlPanel(QWidget):
     illuminant_red_changed = pyqtSignal(float)
     illuminant_yellow_changed = pyqtSignal(float)
     illuminant_white_changed = pyqtSignal(float)
+    perceived_palette_changed = pyqtSignal(bool)
     error_clamp_changed = pyqtSignal(int)
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
@@ -143,6 +145,14 @@ class ControlPanel(QWidget):
         self._rotate_btn.setEnabled(False)
         self._rotate_btn.clicked.connect(self.rotate_clicked.emit)
         layout.addWidget(self._rotate_btn)
+
+        # Perceived Palette チェックボックス
+        self._perceived_check = QCheckBox("Perceived")
+        self._perceived_check.setToolTip("知覚パレットで計算 (e-paper実測値ベース)")
+        self._perceived_check.stateChanged.connect(
+            lambda state: self.perceived_palette_changed.emit(bool(state)),
+        )
+        layout.addWidget(self._perceived_check)
 
         # Error Clamping
         layout.addWidget(QLabel("ErrClamp:"))

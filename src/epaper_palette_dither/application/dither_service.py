@@ -11,7 +11,13 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
-from epaper_palette_dither.domain.color import EINK_PALETTE, RGB, find_nearest_color, rgb_to_lab
+from epaper_palette_dither.domain.color import (
+    EINK_PALETTE,
+    RGB,
+    find_nearest_color,
+    find_nearest_color_index,
+    rgb_to_lab,
+)
 from epaper_palette_dither.domain.dithering import DitherAlgorithm, FloydSteinbergDither
 
 
@@ -62,6 +68,7 @@ class DitherService:
         error_clamp: int = 0,
         red_penalty: float = 0.0,
         yellow_penalty: float = 0.0,
+        perceived_palette: Sequence[RGB] | None = None,
     ) -> npt.NDArray[np.uint8]:
         """NumPyベースの高速Floyd-Steinbergディザリング。
 
@@ -70,10 +77,11 @@ class DitherService:
 
         Args:
             rgb_array: (H, W, 3) の uint8 配列
-            palette: 使用するカラーパレット
+            palette: 使用するカラーパレット（出力値）
             error_clamp: 誤差拡散クランプ値 (0=無効, 値が小さいほど強い抑制)
             red_penalty: 明部での赤ペナルティ係数 (0=無効, CIEDE2000距離に加算)
             yellow_penalty: 暗部での黄ペナルティ係数 (0=無効, CIEDE2000距離に加算)
+            perceived_palette: 知覚パレット。指定時は距離計算・誤差計算を知覚値で行う
 
         Returns:
             ディザリング済みの (H, W, 3) uint8 配列
@@ -88,6 +96,12 @@ class DitherService:
             for c in palette
         ])
 
+        # 知覚パレットのRGB値を事前計算（誤差計算用）
+        if perceived_palette is not None:
+            perceived_rgb = np.array(
+                [c.to_tuple() for c in perceived_palette], dtype=np.float64,
+            )
+
         for y in range(h):
             for x in range(w):
                 old = work[y, x].copy()
@@ -97,21 +111,29 @@ class DitherService:
                     max(0, min(255, round(old[2]))),
                 )
 
-                # ペナルティ: 正規化輝度を計算
+                # 最近傍インデックスを取得
                 if red_penalty > 0.0 or yellow_penalty > 0.0:
                     brightness = max(0.0, min(1.0, (
                         0.2126 * clamped.r + 0.7152 * clamped.g + 0.0722 * clamped.b
                     ) / 255.0))
-                    nearest = find_nearest_color(
-                        clamped, palette, red_penalty, yellow_penalty, brightness,
+                    idx = find_nearest_color_index(
+                        clamped, palette, red_penalty, yellow_penalty,
+                        brightness, perceived_palette,
                     )
                 else:
-                    nearest = find_nearest_color(clamped, palette)
+                    idx = find_nearest_color_index(
+                        clamped, palette, perceived_palette=perceived_palette,
+                    )
 
-                new = np.array(nearest.to_tuple(), dtype=np.float64)
+                # 出力: ハードウェアパレット色
+                new = palette_rgb[idx]
                 work[y, x] = new
 
-                err = old - new
+                # 誤差: 知覚パレット指定時は知覚値で計算
+                if perceived_palette is not None:
+                    err = old - perceived_rgb[idx]
+                else:
+                    err = old - new
 
                 # Error Clamping
                 if error_clamp > 0:

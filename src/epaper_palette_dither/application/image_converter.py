@@ -12,7 +12,7 @@ from typing import Callable, Sequence
 import numpy as np
 import numpy.typing as npt
 
-from epaper_palette_dither.domain.color import EINK_PALETTE, RGB
+from epaper_palette_dither.domain.color import EINK_PALETTE, EINK_PALETTE_PERCEIVED, RGB
 from epaper_palette_dither.domain.image_model import ColorMode, ImageSpec
 from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.infrastructure.gamut_mapping import (
@@ -46,6 +46,7 @@ class ImageConverter:
         self._error_clamp: int = 85
         self._red_penalty: float = 10.0
         self._yellow_penalty: float = 15.0
+        self._use_perceived_palette: bool = False
 
     @property
     def gamut_strength(self) -> float:
@@ -111,6 +112,18 @@ class ImageConverter:
     def yellow_penalty(self, value: float) -> None:
         self._yellow_penalty = max(0.0, min(100.0, value))
 
+    @property
+    def use_perceived_palette(self) -> bool:
+        return self._use_perceived_palette
+
+    @use_perceived_palette.setter
+    def use_perceived_palette(self, value: bool) -> None:
+        self._use_perceived_palette = value
+
+    def _get_perceived_palette(self) -> Sequence[RGB] | None:
+        """知覚パレットを返す（無効時はNone）。"""
+        return EINK_PALETTE_PERCEIVED if self._use_perceived_palette else None
+
     def _apply_color_processing(
         self, rgb_array: npt.NDArray[np.uint8],
     ) -> npt.NDArray[np.uint8]:
@@ -169,6 +182,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._get_perceived_palette(),
         )
 
         if progress:
@@ -224,6 +238,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._get_perceived_palette(),
         )
 
         if progress:
