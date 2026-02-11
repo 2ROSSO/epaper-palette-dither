@@ -1,5 +1,5 @@
 def main():
-    print("Hello from 4color-dither!")
+    print("Hello from epaper-palette-dither!")
 
 
 if __name__ == "__main__":

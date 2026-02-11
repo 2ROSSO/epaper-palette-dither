@@ -69,11 +69,11 @@ class ConvertWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    """4-Color Dither メインウィンドウ。"""
+    """E-Paper Palette Dither メインウィンドウ。"""
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("4-Color Dither for E-Paper")
+        self.setWindowTitle("E-Paper Palette Dither")
         self.setMinimumSize(800, 500)
         self.resize(1000, 600)
 

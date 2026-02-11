@@ -1,7 +1,7 @@
-"""ビルドスクリプト: app.html を 4ColorDither.js に埋め込む。
+"""ビルドスクリプト: app.html を EPaperPaletteDither.js に埋め込む。
 
 app.html の内容をテンプレートリテラルとして
-4ColorDither.js の __HTML_CONTENT__ プレースホルダに挿入する。
+EPaperPaletteDither.js の __HTML_CONTENT__ プレースホルダに挿入する。
 
 Usage:
     uv run python scriptable/build.py
@@ -28,7 +28,7 @@ def main() -> None:
     output = template.replace("__HTML_CONTENT__", html_escaped)
 
     # 出力
-    dist_path = root / "4ColorDither.js"
+    dist_path = root / "EPaperPaletteDither.js"
     dist_path.write_text(output, encoding="utf-8")
 
     print(f"Built: {dist_path}")
