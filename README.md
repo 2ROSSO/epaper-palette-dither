@@ -64,13 +64,28 @@ uv run pytest
 - **ドラッグ&ドロップ**: 画像ファイルのD&D読み込み対応
 - **左右並列プレビュー**: 元画像とディザリング結果を比較表示
 
+## iPhone版 (Scriptable)
+
+[Scriptable](https://apps.apple.com/app/scriptable/id1405459188) アプリを使ったiPhone版も利用可能。
+デスクトップ版と同一のアルゴリズムをJavaScriptで再実装。
+
+- `scriptable/4ColorDither.js` を Scriptable の Documents フォルダにコピーするだけで動作
+- 共有シート / Shortcuts からも起動可能
+- 詳細: [scriptable/README.md](scriptable/README.md)
+
 ## 技術スタック
 
+### デスクトップ版
 - Python 3.12 / uv
 - PyQt6 (GUI)
 - Pillow (画像I/O)
 - NumPy (数値計算)
 - pytest + pytest-qt (テスト)
+
+### iPhone版 (Scriptable)
+- Scriptable (iOS) + WebView
+- Canvas API + Vanilla JavaScript
+- 全アルゴリズムをPythonから忠実にポート
 
 ## プロジェクト構成
 
@@ -91,6 +106,18 @@ src/four_color_dither/
     ├── controls.py       # パラメータ制御パネル
     ├── image_viewer.py   # 画像表示ウィジェット（D&D対応）
     └── main_window.py    # メインウィンドウ
+
+scriptable/                  # iPhone版 (Scriptable)
+├── 4ColorDither.js          # 配布用単一ファイル
+├── src/                     # 開発用ソース
+│   ├── color.js             # 色計算コア
+│   ├── gamut-mapping.js     # ガマットマッピング4モード
+│   ├── dithering.js         # Floyd-Steinbergディザリング
+│   └── app.html             # WebView UI
+└── tests/                   # テスト
+    ├── generate-vectors.py  # テストベクトル生成
+    ├── test-vectors.json    # クロス言語テスト期待値
+    └── test-runner.html     # ブラウザテストランナー
 ```
 
 ## 謝辞
