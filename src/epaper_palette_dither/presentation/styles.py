@@ -16,6 +16,10 @@ _AMBER = "#f0ad4e"
 _AMBER_HOVER = "#ec971f"
 _AMBER_PRESSED = "#d58512"
 
+_PURPLE = "#9b59b6"
+_PURPLE_HOVER = "#8e44ad"
+_PURPLE_PRESSED = "#7d3c98"
+
 _BG_LIGHT = "#f5f5f5"
 _BORDER = "#ddd"
 _BORDER_INPUT = "#bbb"
@@ -288,6 +292,25 @@ QPushButton#gamutOnlyBtn:pressed {{
 QPushButton#gamutOnlyBtn:disabled {{
     background-color: {_DISABLED_BG};
     color: {_DISABLED_TEXT};
+}}
+
+/* --- Optimize ボタン (紫) --- */
+QPushButton#optimizeBtn {{
+    background-color: {_PURPLE};
+    border-color: {_PURPLE_HOVER};
+    color: white;
+    font-weight: bold;
+}}
+QPushButton#optimizeBtn:hover {{
+    background-color: {_PURPLE_HOVER};
+}}
+QPushButton#optimizeBtn:pressed {{
+    background-color: {_PURPLE_PRESSED};
+}}
+QPushButton#optimizeBtn:disabled {{
+    background-color: #c9a0d8;
+    border-color: #c9a0d8;
+    color: #e8d5f0;
 }}
 
 /* --- Illuminant Reset ボタン (小) --- */
