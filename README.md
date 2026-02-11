@@ -58,11 +58,25 @@ uv run pytest
 | **RedPen** | 10.0 | 0–100 | 明部での赤ペナルティ。CIEDE2000距離に加算し明部の赤ドットを抑制 |
 | **YellowPen** | 15.0 | 0–100 | 暗部での黄ペナルティ。CIEDE2000距離に加算し暗部の黄ドットを抑制 |
 
+### Reconvert（逆ディザリング）
+ディザリング結果から元画像の近似復元を行う機能。ディザリングパラメータの効果確認に有用。
+
+**処理パイプライン**:
+1. **Gaussian Blur**: sRGB空間でディザパターンを平滑化し連続的な色調を復元
+2. **逆ガマットマッピング**: Grayout/Illuminant モードの色変換を逆適用
+3. **自動輝度補正**: リニア空間でBT.709輝度を比較し、逆変換による輝度変化を補正
+
+| パラメータ | デフォルト | 範囲 | 効果 |
+|-----------|-----------|------|------|
+| **Blur** | 1 | 1–20 | ブラー半径。大きいほど滑らかだがディテール減少 |
+| **Bright** | 1.00 | 0.50–2.00 | 手動明るさ調整（自動補正に乗算） |
+
 ### GUI
+- **3パネル並列表示**: Original / Dithered Preview / Reconverted を横並びで比較
 - **ガマットのみプレビュー**: ディザリングなしでカラーモードの効果を確認
 - **画像回転**: 元画像の90° CW回転（E-Paperの縦横切替用）
+- **自動回転**: 縦長画像を読み込み時に自動で横向きに回転
 - **ドラッグ&ドロップ**: 画像ファイルのD&D読み込み対応
-- **左右並列プレビュー**: 元画像とディザリング結果を比較表示
 
 ## iPhone版 (Scriptable)
 
@@ -91,21 +105,23 @@ uv run pytest
 
 ```
 src/epaper_palette_dither/
-├── domain/           # ドメイン層（Pure Python、外部依存なし）
-│   ├── color.py          # RGB, パレット定義, CIEDE2000色差
-│   ├── dithering.py      # Floyd-Steinberg誤差拡散
-│   └── image_model.py    # ColorMode, DisplayPreset, ImageSpec
-├── application/      # アプリケーション層（ユースケース）
-│   ├── dither_service.py # ディザリングサービス（ErrClamp/RedPen/YellowPen対応）
-│   └── image_converter.py # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ管理）
-├── infrastructure/   # インフラ層（Pillow, NumPy, ファイルI/O）
-│   ├── color_space.py    # Lab色空間バッチ変換
-│   ├── gamut_mapping.py  # Grayout, Anti-Saturation, Centroid Clip, Illuminant
-│   └── image_io.py       # 画像読込/保存/リサイズ/回転
-└── presentation/     # プレゼンテーション層（PyQt6 GUI）
-    ├── controls.py       # パラメータ制御パネル
-    ├── image_viewer.py   # 画像表示ウィジェット（D&D対応）
-    └── main_window.py    # メインウィンドウ
+├── domain/               # ドメイン層（Pure Python、外部依存なし）
+│   ├── color.py              # RGB, パレット定義, CIEDE2000色差, RedPen/YellowPen
+│   ├── dithering.py          # Floyd-Steinberg誤差拡散
+│   └── image_model.py        # ColorMode, DisplayPreset, ImageSpec
+├── application/          # アプリケーション層（ユースケース）
+│   ├── dither_service.py     # ディザリングサービス（ErrClamp/RedPen/YellowPen対応）
+│   ├── image_converter.py    # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ管理）
+│   └── reconvert_service.py  # 逆ディザリング（Blur→逆ガマット→自動輝度補正）
+├── infrastructure/       # インフラ層（Pillow, NumPy, ファイルI/O）
+│   ├── color_space.py        # sRGB⇔Linear, RGB⇔Lab バッチ変換
+│   ├── gamut_mapping.py      # Grayout, Anti-Saturation, Centroid Clip, Illuminant
+│   ├── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
+│   └── image_io.py           # 画像読込/保存/リサイズ/回転
+└── presentation/         # プレゼンテーション層（PyQt6 GUI）
+    ├── controls.py           # パラメータ制御パネル（2段構成: 変換 + Reconvert）
+    ├── image_viewer.py       # 画像表示ウィジェット（D&D対応）
+    └── main_window.py        # メインウィンドウ（3パネル + ワーカースレッド）
 
 scriptable/                  # iPhone版 (Scriptable)
 ├── EPaperPaletteDither.js    # 配布用単一ファイル

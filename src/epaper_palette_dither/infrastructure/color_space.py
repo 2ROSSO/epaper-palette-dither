@@ -9,6 +9,40 @@ import numpy as np
 import numpy.typing as npt
 
 
+def srgb_to_linear_batch(rgb_array: npt.NDArray[np.uint8]) -> npt.NDArray[np.float64]:
+    """sRGB uint8 配列をリニアRGB float64 に変換。
+
+    IEC 61966-2-1 準拠。
+
+    Args:
+        rgb_array: (H, W, 3) の uint8 配列 (sRGB)
+
+    Returns:
+        (H, W, 3) の float64 配列 (リニアRGB, [0.0, 1.0])
+    """
+    rgb_float = rgb_array.astype(np.float64) / 255.0
+    mask = rgb_float <= 0.04045
+    return np.where(mask, rgb_float / 12.92, ((rgb_float + 0.055) / 1.055) ** 2.4)
+
+
+def linear_to_srgb_batch(
+    linear_array: npt.NDArray[np.float64],
+) -> npt.NDArray[np.uint8]:
+    """リニアRGB float64 配列を sRGB uint8 に変換。
+
+    IEC 61966-2-1 逆変換。範囲外の値は [0, 255] にクリップ。
+
+    Args:
+        linear_array: (H, W, 3) の float64 配列 (リニアRGB)
+
+    Returns:
+        (H, W, 3) の uint8 配列 (sRGB)
+    """
+    c = np.clip(linear_array, 0.0, 1.0)
+    srgb = np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1.0 / 2.4) - 0.055)
+    return np.clip(srgb * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
 def rgb_to_lab_batch(rgb_array: npt.NDArray[np.uint8]) -> npt.NDArray[np.float64]:
     """RGB画像配列をLAB色空間に一括変換。
 

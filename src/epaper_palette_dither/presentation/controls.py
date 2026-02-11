@@ -1,6 +1,8 @@
 """パラメータ制御パネル。
 
 ディスプレイプリセット選択、ガマットマッピング強度、変換・保存ボタン等。
+Row1: 変換パラメータ + ボタン
+Row2: Reconvert パラメータ + ボタン
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
+    QVBoxLayout,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -23,6 +26,7 @@ _GAMUT_STRENGTH_DEFAULT = 0.70
 _ILLUMINANT_RED_DEFAULT = 1.00
 _ILLUMINANT_YELLOW_DEFAULT = 1.00
 _ILLUMINANT_WHITE_DEFAULT = 1.00
+_BLUR_RADIUS_DEFAULT = 1
 
 
 class ControlPanel(QWidget):
@@ -32,6 +36,7 @@ class ControlPanel(QWidget):
     gamut_only_clicked = pyqtSignal()
     rotate_clicked = pyqtSignal()
     save_clicked = pyqtSignal()
+    reconvert_clicked = pyqtSignal()
     preset_changed = pyqtSignal(DisplayPreset)
     gamut_strength_changed = pyqtSignal(float)
     color_mode_changed = pyqtSignal(object)
@@ -42,12 +47,19 @@ class ControlPanel(QWidget):
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
     use_lab_changed = pyqtSignal(bool)
+    blur_radius_changed = pyqtSignal(int)
+    brightness_changed = pyqtSignal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(8, 4, 8, 4)
+        main_layout.setSpacing(2)
+
+        # === Row 1: 変換パラメータ + ボタン ===
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # プリセット選択
         layout.addWidget(QLabel("Target:"))
@@ -67,6 +79,9 @@ class ControlPanel(QWidget):
         self._color_mode_combo = QComboBox()
         for mode in ColorMode:
             self._color_mode_combo.addItem(mode.value, mode)
+        self._color_mode_combo.setCurrentIndex(
+            list(ColorMode).index(ColorMode.ILLUMINANT),
+        )
         self._color_mode_combo.currentIndexChanged.connect(self._on_color_mode_changed)
         layout.addWidget(self._color_mode_combo)
 
@@ -86,6 +101,7 @@ class ControlPanel(QWidget):
         self._gamut_spin.setValue(_GAMUT_STRENGTH_DEFAULT)
         self._gamut_spin.setFixedWidth(90)
         self._gamut_spin.setToolTip("ガマットマッピング強度 (0.00〜1.00)")
+        self._gamut_spin.setVisible(False)
         self._gamut_spin.valueChanged.connect(self._on_gamut_changed)
         layout.addWidget(self._gamut_spin)
 
@@ -140,14 +156,20 @@ class ControlPanel(QWidget):
             self._illuminant_white_spin,
             self._illuminant_reset_btn,
         ]
-        # 初期状態: 非表示
+        # 初期状態: Illuminant モードなので表示
         for w in self._illuminant_widgets:
-            w.setVisible(False)
+            w.setVisible(True)
 
         layout.addStretch()
 
+        # 自動回転チェックボックス
+        self._auto_rotate_check = QCheckBox("Auto\u21bb")
+        self._auto_rotate_check.setChecked(True)
+        self._auto_rotate_check.setToolTip("縦長画像を読み込み時に自動で横向きに回転")
+        layout.addWidget(self._auto_rotate_check)
+
         # 回転ボタン
-        self._rotate_btn = QPushButton("↻ Rotate")
+        self._rotate_btn = QPushButton("\u21bb Rotate")
         self._rotate_btn.setMinimumWidth(80)
         self._rotate_btn.setToolTip("元画像を時計回りに90°回転")
         self._rotate_btn.setEnabled(False)
@@ -202,11 +224,48 @@ class ControlPanel(QWidget):
         layout.addWidget(self._gamut_only_btn)
 
         # 保存ボタン
-        self._save_btn = QPushButton("💾 Save")
+        self._save_btn = QPushButton("\U0001f4be Save")
         self._save_btn.setMinimumWidth(80)
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self.save_clicked.emit)
         layout.addWidget(self._save_btn)
+
+        main_layout.addLayout(layout)
+
+        # === Row 2: Reconvert パラメータ + ボタン ===
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(0, 0, 0, 0)
+
+        row2.addWidget(QLabel("Blur:"))
+        self._blur_radius_spin = QSpinBox()
+        self._blur_radius_spin.setRange(1, 20)
+        self._blur_radius_spin.setValue(_BLUR_RADIUS_DEFAULT)
+        self._blur_radius_spin.setFixedWidth(70)
+        self._blur_radius_spin.setToolTip("ガウシアンブラー半径 (1〜20)")
+        self._blur_radius_spin.valueChanged.connect(self.blur_radius_changed.emit)
+        row2.addWidget(self._blur_radius_spin)
+
+        row2.addWidget(QLabel("Bright:"))
+        self._brightness_spin = QDoubleSpinBox()
+        self._brightness_spin.setRange(0.50, 2.00)
+        self._brightness_spin.setSingleStep(0.05)
+        self._brightness_spin.setDecimals(2)
+        self._brightness_spin.setValue(1.00)
+        self._brightness_spin.setFixedWidth(90)
+        self._brightness_spin.setToolTip("明るさ手動調整 (1.00=自動のみ)")
+        self._brightness_spin.valueChanged.connect(self.brightness_changed.emit)
+        row2.addWidget(self._brightness_spin)
+
+        row2.addStretch()
+
+        self._reconvert_btn = QPushButton("\u25c0 Reconvert")
+        self._reconvert_btn.setMinimumWidth(110)
+        self._reconvert_btn.setToolTip("ディザ結果をブラー＋逆ガマットで復元")
+        self._reconvert_btn.setEnabled(False)
+        self._reconvert_btn.clicked.connect(self.reconvert_clicked.emit)
+        row2.addWidget(self._reconvert_btn)
+
+        main_layout.addLayout(row2)
 
     @property
     def current_preset(self) -> DisplayPreset:
@@ -227,6 +286,21 @@ class ControlPanel(QWidget):
 
     def set_gamut_only_enabled(self, enabled: bool) -> None:
         self._gamut_only_btn.setEnabled(enabled)
+
+    def set_reconvert_enabled(self, enabled: bool) -> None:
+        self._reconvert_btn.setEnabled(enabled)
+
+    @property
+    def auto_rotate(self) -> bool:
+        return self._auto_rotate_check.isChecked()
+
+    @property
+    def blur_radius(self) -> int:
+        return self._blur_radius_spin.value()
+
+    @property
+    def brightness(self) -> float:
+        return self._brightness_spin.value()
 
     def _on_preset_changed(self, index: int) -> None:
         preset = self._preset_combo.itemData(index)
