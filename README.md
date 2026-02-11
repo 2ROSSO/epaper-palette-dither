@@ -124,4 +124,4 @@ scriptable/                  # iPhone版 (Scriptable)
 
 ## 謝辞
 
-- [Arrayfy](https://shapoco.github.io/arrayfy/) by [Shapoco](https://github.com/shapoco) — Grayout CSR・Anti-Saturation等のカラーモード設計を参考にさせていただきました
+- [Arrayfy](https://shapoco.github.io/arrayfy/) by [Shapoco](https://github.com/shapoco) — Grayout（HSL脱彩度化）方式の着想を参考にさせていただきました
