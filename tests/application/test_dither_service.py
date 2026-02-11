@@ -334,14 +334,14 @@ class TestImageConverter:
         assert converter.error_clamp == 85
 
     def test_red_penalty_default(self) -> None:
-        """red_penalty デフォルト 10.0。"""
+        """red_penalty デフォルト 0.0。"""
         converter = ImageConverter()
-        assert converter.red_penalty == 10.0
+        assert converter.red_penalty == 0.0
 
     def test_yellow_penalty_default(self) -> None:
-        """yellow_penalty デフォルト 15.0。"""
+        """yellow_penalty デフォルト 0.0。"""
         converter = ImageConverter()
-        assert converter.yellow_penalty == 15.0
+        assert converter.yellow_penalty == 0.0
 
     def test_error_clamp_setter_clamps(self) -> None:
         """error_clamp の範囲クランプ (0-128)。"""
