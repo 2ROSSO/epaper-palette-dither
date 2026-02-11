@@ -1,0 +1,217 @@
+/**
+ * color.js — 色計算コア
+ *
+ * E-Ink 4色パレット定義、RGB→Lab変換、CIEDE2000色差、最近色検索。
+ * Python実装 (domain/color.py) の忠実なJSポート。
+ */
+
+// --- E-Ink 4色パレット ---
+
+const EINK_PALETTE = [
+  [255, 255, 255], // White
+  [0, 0, 0],       // Black
+  [200, 0, 0],     // Red
+  [255, 255, 0],   // Yellow
+];
+
+// --- RGB → Lab 変換 ---
+
+/**
+ * sRGBコンポーネント(0-255)をリニアRGBに変換。
+ * @param {number} c - sRGB値 (0-255)
+ * @returns {number} リニアRGB値
+ */
+function srgbToLinear(c) {
+  const v = c / 255.0;
+  if (v <= 0.04045) {
+    return v / 12.92;
+  }
+  return Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+/**
+ * Lab変換の補助関数。
+ * @param {number} t
+ * @returns {number}
+ */
+function _labF(t) {
+  const delta = 6.0 / 29.0;
+  if (t > delta * delta * delta) {
+    return Math.pow(t, 1.0 / 3.0);
+  }
+  return t / (3.0 * delta * delta) + 4.0 / 29.0;
+}
+
+/**
+ * RGB(0-255)をCIE L*a*b*に変換。D65光源基準。
+ * @param {number} r - Red (0-255)
+ * @param {number} g - Green (0-255)
+ * @param {number} b - Blue (0-255)
+ * @returns {number[]} [L, a, b]
+ */
+function rgbToLab(r, g, b) {
+  // sRGB → リニアRGB
+  const rLin = srgbToLinear(r);
+  const gLin = srgbToLinear(g);
+  const bLin = srgbToLinear(b);
+
+  // リニアRGB → XYZ (D65)
+  const x = 0.4124564 * rLin + 0.3575761 * gLin + 0.1804375 * bLin;
+  const y = 0.2126729 * rLin + 0.7151522 * gLin + 0.0721750 * bLin;
+  const z = 0.0193339 * rLin + 0.1191920 * gLin + 0.9503041 * bLin;
+
+  // D65 白色点
+  const xn = 0.95047, yn = 1.00000, zn = 1.08883;
+
+  // XYZ → L*a*b*
+  const fx = _labF(x / xn);
+  const fy = _labF(y / yn);
+  const fz = _labF(z / zn);
+
+  const L = 116.0 * fy - 16.0;
+  const a = 500.0 * (fx - fy);
+  const bStar = 200.0 * (fy - fz);
+
+  return [L, a, bStar];
+}
+
+/**
+ * CIEDE2000色差を計算。
+ * 参考: "The CIEDE2000 Color-Difference Formula" (Sharma et al., 2005)
+ * @param {number[]} lab1 - [L, a, b]
+ * @param {number[]} lab2 - [L, a, b]
+ * @returns {number} CIEDE2000色差
+ */
+function ciede2000(lab1, lab2) {
+  const [l1, a1, b1] = lab1;
+  const [l2, a2, b2] = lab2;
+
+  const RAD = Math.PI / 180.0;
+  const DEG = 180.0 / Math.PI;
+
+  // Step 1
+  const c1Ab = Math.sqrt(a1 * a1 + b1 * b1);
+  const c2Ab = Math.sqrt(a2 * a2 + b2 * b2);
+  const cAbMean = (c1Ab + c2Ab) / 2.0;
+
+  const cAbMean7 = Math.pow(cAbMean, 7);
+  const g = 0.5 * (1.0 - Math.sqrt(cAbMean7 / (cAbMean7 + Math.pow(25.0, 7))));
+
+  const a1Prime = a1 * (1.0 + g);
+  const a2Prime = a2 * (1.0 + g);
+
+  const c1Prime = Math.sqrt(a1Prime * a1Prime + b1 * b1);
+  const c2Prime = Math.sqrt(a2Prime * a2Prime + b2 * b2);
+
+  let h1Prime = (Math.atan2(b1, a1Prime) * DEG) % 360.0;
+  if (h1Prime < 0) h1Prime += 360.0;
+  let h2Prime = (Math.atan2(b2, a2Prime) * DEG) % 360.0;
+  if (h2Prime < 0) h2Prime += 360.0;
+
+  // Step 2: Delta値
+  const deltaLPrime = l2 - l1;
+  const deltaCPrime = c2Prime - c1Prime;
+
+  let deltaHPrime;
+  if (c1Prime * c2Prime === 0.0) {
+    deltaHPrime = 0.0;
+  } else if (Math.abs(h2Prime - h1Prime) <= 180.0) {
+    deltaHPrime = h2Prime - h1Prime;
+  } else if (h2Prime - h1Prime > 180.0) {
+    deltaHPrime = h2Prime - h1Prime - 360.0;
+  } else {
+    deltaHPrime = h2Prime - h1Prime + 360.0;
+  }
+
+  const deltaHPrimeBig = 2.0 * Math.sqrt(c1Prime * c2Prime) *
+    Math.sin((deltaHPrime / 2.0) * RAD);
+
+  // Step 3: CIEDE2000
+  const lPrimeMean = (l1 + l2) / 2.0;
+  const cPrimeMean = (c1Prime + c2Prime) / 2.0;
+
+  let hPrimeMean;
+  if (c1Prime * c2Prime === 0.0) {
+    hPrimeMean = h1Prime + h2Prime;
+  } else if (Math.abs(h1Prime - h2Prime) <= 180.0) {
+    hPrimeMean = (h1Prime + h2Prime) / 2.0;
+  } else if (h1Prime + h2Prime < 360.0) {
+    hPrimeMean = (h1Prime + h2Prime + 360.0) / 2.0;
+  } else {
+    hPrimeMean = (h1Prime + h2Prime - 360.0) / 2.0;
+  }
+
+  const t = 1.0
+    - 0.17 * Math.cos((hPrimeMean - 30.0) * RAD)
+    + 0.24 * Math.cos((2.0 * hPrimeMean) * RAD)
+    + 0.32 * Math.cos((3.0 * hPrimeMean + 6.0) * RAD)
+    - 0.20 * Math.cos((4.0 * hPrimeMean - 63.0) * RAD);
+
+  const lm50sq = (lPrimeMean - 50.0) * (lPrimeMean - 50.0);
+  const sl = 1.0 + 0.015 * lm50sq / Math.sqrt(20.0 + lm50sq);
+  const sc = 1.0 + 0.045 * cPrimeMean;
+  const sh = 1.0 + 0.015 * cPrimeMean * t;
+
+  const cPrimeMean7 = Math.pow(cPrimeMean, 7);
+  const rc = 2.0 * Math.sqrt(cPrimeMean7 / (cPrimeMean7 + Math.pow(25.0, 7)));
+  const deltaTheta = 30.0 * Math.exp(
+    -Math.pow((hPrimeMean - 275.0) / 25.0, 2)
+  );
+  const rt = -Math.sin((2.0 * deltaTheta) * RAD) * rc;
+
+  return Math.sqrt(
+    Math.pow(deltaLPrime / sl, 2) +
+    Math.pow(deltaCPrime / sc, 2) +
+    Math.pow(deltaHPrimeBig / sh, 2) +
+    rt * (deltaCPrime / sc) * (deltaHPrimeBig / sh)
+  );
+}
+
+/**
+ * パレットから最も近い色をCIEDE2000で検索。
+ * @param {number} r - Red (0-255)
+ * @param {number} g - Green (0-255)
+ * @param {number} b - Blue (0-255)
+ * @param {number[][]} palette - パレット色配列 [[r,g,b], ...]
+ * @param {number} redPenalty - 赤ペナルティ係数 (0=無効)
+ * @param {number} yellowPenalty - 黄ペナルティ係数 (0=無効)
+ * @param {number} brightness - 正規化輝度 (0.0〜1.0)
+ * @returns {number[]} 最近パレット色 [r, g, b]
+ */
+function findNearestColor(r, g, b, palette, redPenalty, yellowPenalty, brightness) {
+  palette = palette || EINK_PALETTE;
+  redPenalty = redPenalty || 0.0;
+  yellowPenalty = yellowPenalty || 0.0;
+  brightness = brightness || 0.0;
+
+  const lab = rgbToLab(r, g, b);
+  let bestColor = palette[0];
+  let bestDist = Infinity;
+
+  for (const p of palette) {
+    let dist = ciede2000(lab, rgbToLab(p[0], p[1], p[2]));
+
+    // 赤パレット色 (R>150, G<50, B<50) に明度ベースのペナルティ
+    if (redPenalty > 0.0 && p[0] > 150 && p[1] < 50 && p[2] < 50) {
+      dist += redPenalty * brightness;
+    }
+    // 黄パレット色 (R>200, G>200, B<50) に暗部ベースのペナルティ
+    if (yellowPenalty > 0.0 && p[0] > 200 && p[1] > 200 && p[2] < 50) {
+      dist += yellowPenalty * (1.0 - brightness);
+    }
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestColor = p;
+    }
+  }
+
+  return bestColor;
+}
+
+// Export for test and module usage
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    EINK_PALETTE, srgbToLinear, rgbToLab, ciede2000, findNearestColor
+  };
+}
