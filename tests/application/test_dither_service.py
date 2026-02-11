@@ -505,3 +505,149 @@ class TestDitherServiceParams:
 
         # ペナルティありで黄ピクセルが同じか減るはず
         assert yellow_count_with <= yellow_count_no
+
+
+class TestLabEuclideanVsCiede2000:
+    """Lab Euclidean距離とCIEDE2000の最近色選択一致率を検証。"""
+
+    def test_nearest_color_agreement_random_samples(self) -> None:
+        """ランダムRGBサンプルでLab EuclideanとCIEDE2000の最近色が高い一致率を示す。"""
+        from epaper_palette_dither.domain.color import (
+            EINK_PALETTE, RGB, ciede2000, rgb_to_lab,
+        )
+        from epaper_palette_dither.application.dither_service import (
+            _precompute_palette_lab, _rgb_to_lab_inline,
+        )
+
+        pal_rgb, pal_lab = _precompute_palette_lab(EINK_PALETTE)
+        rng = np.random.default_rng(42)
+        samples = rng.integers(0, 256, (500, 3), dtype=np.uint8)
+
+        agree = 0
+        total = len(samples)
+        for s in samples:
+            r, g, b = int(s[0]), int(s[1]), int(s[2])
+
+            # Lab Euclidean
+            pL, pa, pb = _rgb_to_lab_inline(r, g, b)
+            best_lab_idx = 0
+            best_lab_dist = float("inf")
+            for i, (cL, ca, cb) in enumerate(pal_lab):
+                d = (pL - cL) ** 2 + (pa - ca) ** 2 + (pb - cb) ** 2
+                if d < best_lab_dist:
+                    best_lab_dist = d
+                    best_lab_idx = i
+
+            # CIEDE2000
+            color = RGB(r, g, b)
+            lab = rgb_to_lab(color)
+            best_ciede_idx = 0
+            best_ciede_dist = float("inf")
+            for i, p in enumerate(EINK_PALETTE):
+                d = ciede2000(lab, rgb_to_lab(p))
+                if d < best_ciede_dist:
+                    best_ciede_dist = d
+                    best_ciede_idx = i
+
+            if best_lab_idx == best_ciede_idx:
+                agree += 1
+
+        rate = agree / total
+        # 境界領域でCIEDE2000の知覚補正との差異があるが、
+        # FS誤差拡散が補正するため視覚的影響は最小。80%以上で合格。
+        assert rate >= 0.80, f"一致率 {rate:.1%} が低すぎ"
+
+    def test_palette_colors_exact_match(self) -> None:
+        """パレット色自体はLab EuclideanでもCIEDE2000でも正確に自身にマッチ。"""
+        from epaper_palette_dither.application.dither_service import (
+            _precompute_palette_lab, _rgb_to_lab_inline,
+        )
+
+        pal_rgb, pal_lab = _precompute_palette_lab(EINK_PALETTE)
+        for idx, c in enumerate(EINK_PALETTE):
+            pL, pa, pb = _rgb_to_lab_inline(c.r, c.g, c.b)
+            best_idx = 0
+            best_dist = float("inf")
+            for i, (cL, ca, cb) in enumerate(pal_lab):
+                d = (pL - cL) ** 2 + (pa - ca) ** 2 + (pb - cb) ** 2
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+            assert best_idx == idx, f"パレット{idx}が{best_idx}にマッチ"
+
+
+class TestDitherLut:
+    """LUT生成の正当性テスト。"""
+
+    def test_lut_shape(self) -> None:
+        """LUTは (64, 64, 64) uint8 配列。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut, LUT_SIZE
+        lut = build_lut(EINK_PALETTE)
+        assert lut.shape == (LUT_SIZE, LUT_SIZE, LUT_SIZE)
+        assert lut.dtype == np.uint8
+
+    def test_lut_values_in_range(self) -> None:
+        """LUTの全値がパレットインデックス範囲内。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        lut = build_lut(EINK_PALETTE)
+        assert lut.min() >= 0
+        assert lut.max() < len(EINK_PALETTE)
+
+    def test_lut_white_maps_to_white(self) -> None:
+        """白(255,255,255) → パレットインデックス0 (白)。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        lut = build_lut(EINK_PALETTE)
+        # 255 >> 2 = 63
+        assert lut[63, 63, 63] == 0  # EINK_WHITE
+
+    def test_lut_black_maps_to_black(self) -> None:
+        """黒(0,0,0) → パレットインデックス1 (黒)。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        lut = build_lut(EINK_PALETTE)
+        assert lut[0, 0, 0] == 1  # EINK_BLACK
+
+    def test_lut_red_maps_to_red(self) -> None:
+        """赤(200,0,0) → パレットインデックス2 (赤)。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        lut = build_lut(EINK_PALETTE)
+        assert lut[200 >> 2, 0, 0] == 2  # EINK_RED
+
+    def test_lut_yellow_maps_to_yellow(self) -> None:
+        """黄(255,255,0) → パレットインデックス3 (黄)。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        lut = build_lut(EINK_PALETTE)
+        assert lut[63, 63, 0] == 3  # EINK_YELLOW
+
+    def test_lut_agrees_with_direct_lab(self) -> None:
+        """LUT結果がdirect Lab Euclidean計算と一致。"""
+        from epaper_palette_dither.infrastructure.dither_lut import build_lut
+        from epaper_palette_dither.application.dither_service import (
+            _precompute_palette_lab, _rgb_to_lab_inline,
+        )
+
+        lut = build_lut(EINK_PALETTE)
+        pal_rgb, pal_lab = _precompute_palette_lab(EINK_PALETTE)
+
+        # サンプルRGB値でLUTとdirect計算の一致を確認
+        rng = np.random.default_rng(123)
+        samples = rng.integers(0, 256, (200, 3), dtype=np.uint8)
+        agree = 0
+        for s in samples:
+            r, g, b = int(s[0]), int(s[1]), int(s[2])
+            lut_idx = lut[r >> 2, g >> 2, b >> 2]
+
+            pL, pa, pb = _rgb_to_lab_inline(r, g, b)
+            best_idx = 0
+            best_dist = float("inf")
+            for i, (cL, ca, cb) in enumerate(pal_lab):
+                d = (pL - cL) ** 2 + (pa - ca) ** 2 + (pb - cb) ** 2
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = i
+
+            if lut_idx == best_idx:
+                agree += 1
+
+        rate = agree / len(samples)
+        # 量子化誤差の影響で境界付近では不一致が起きるが、95%以上は一致するはず
+        assert rate >= 0.95, f"LUT一致率 {rate:.1%} が低すぎ"
