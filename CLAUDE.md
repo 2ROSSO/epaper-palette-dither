@@ -75,6 +75,36 @@ src/four_color_dither/
     └── main_window.py        # MainWindow（左右並列ビューア + ワーカー）
 ```
 
+## Scriptable (iPhone版)
+
+### 構成
+```
+scriptable/
+├── 4ColorDither.js              # 配布用（HTML埋め込み済み単一ファイル）
+├── build.py                     # ビルドスクリプト
+├── src/
+│   ├── scriptable-entry.js      # Scriptableエントリポイント（テンプレート）
+│   ├── color.js                 # 色計算: Lab, CIEDE2000, findNearestColor
+│   ├── gamut-mapping.js         # ガマットマッピング4モード
+│   ├── dithering.js             # Floyd-Steinberg + パラメータ
+│   └── app.html                 # WebView UI（ブラウザでもテスト可能）
+├── tests/
+│   ├── generate-vectors.py      # Python→JSON テストベクトル生成
+│   ├── test-vectors.json        # クロス言語テスト期待値
+│   └── test-runner.html         # ブラウザテストランナー（46テスト）
+└── README.md
+```
+
+### コマンド
+- ビルド: `uv run python scriptable/build.py`
+- テストベクトル再生成: `uv run python scriptable/tests/generate-vectors.py`
+- JSテスト: `uv run python -m http.server 8765 --directory scriptable` → `http://localhost:8765/tests/test-runner.html`
+
+### 注意事項
+- Python実装の変更後は必ずテストベクトルを再生成し、JSテストの整合性を確認する
+- `src/app.html` 編集後は `build.py` で `4ColorDither.js` を再生成する
+- `4ColorDither.js` を直接編集しない（ビルド成果物）
+
 ## 主要な型・列挙
 - `ColorMode`: Grayout / Anti-Saturation / Centroid Clip / Illuminant
 - `DisplayPreset`: Santek 2.9" (296×128) / 4.2" (400×300)
@@ -83,3 +113,5 @@ src/four_color_dither/
 ## コマンド
 - テスト実行: `uv run pytest`
 - アプリ起動: `uv run python -m four_color_dither`
+- Scriptableビルド: `uv run python scriptable/build.py`
+- Scriptableテストベクトル再生成: `uv run python scriptable/tests/generate-vectors.py`
