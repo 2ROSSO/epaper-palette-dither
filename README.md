@@ -109,7 +109,9 @@ src/four_color_dither/
 
 scriptable/                  # iPhone版 (Scriptable)
 ├── 4ColorDither.js          # 配布用単一ファイル
+├── build.py                 # ビルドスクリプト
 ├── src/                     # 開発用ソース
+│   ├── scriptable-entry.js  # Scriptableエントリポイント（テンプレート）
 │   ├── color.js             # 色計算コア
 │   ├── gamut-mapping.js     # ガマットマッピング4モード
 │   ├── dithering.js         # Floyd-Steinbergディザリング
