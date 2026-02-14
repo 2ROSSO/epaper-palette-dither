@@ -256,6 +256,7 @@ class OptimizerService:
             f"  PSNR={best_metrics_final['psnr']:.2f} "
             f"SSIM={best_metrics_final['ssim']:.4f} "
             f"LabDE={best_metrics_final['lab_de']:.2f} "
+            f"S-CIELAB={best_metrics_final['scielab_de']:.2f} "
             f"Hist={best_metrics_final['hist_corr']:.4f}"
         )
         for pd in param_defs:
