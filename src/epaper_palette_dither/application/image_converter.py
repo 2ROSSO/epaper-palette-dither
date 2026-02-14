@@ -49,6 +49,7 @@ class ImageConverter:
         self._red_penalty: float = 0.0
         self._yellow_penalty: float = 0.0
         self._use_lab_space: bool = True
+        self._csf_chroma_weight: float = 0.6
 
     @property
     def gamut_strength(self) -> float:
@@ -122,6 +123,14 @@ class ImageConverter:
     def use_lab_space(self, value: bool) -> None:
         self._use_lab_space = value
 
+    @property
+    def csf_chroma_weight(self) -> float:
+        return self._csf_chroma_weight
+
+    @csf_chroma_weight.setter
+    def csf_chroma_weight(self, value: float) -> None:
+        self._csf_chroma_weight = max(0.0, min(1.0, value))
+
     def _apply_color_processing(
         self, rgb_array: npt.NDArray[np.uint8],
     ) -> npt.NDArray[np.uint8]:
@@ -158,6 +167,7 @@ class ImageConverter:
         return self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
     def convert(
@@ -202,6 +212,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
         if progress:
@@ -257,6 +268,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
         if progress:

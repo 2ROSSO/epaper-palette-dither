@@ -107,6 +107,7 @@ class DitherService:
         error_clamp: int = 0,
         red_penalty: float = 0.0,
         yellow_penalty: float = 0.0,
+        csf_chroma_weight: float = 1.0,
     ) -> npt.NDArray[np.uint8]:
         """NumPyベースの高速Floyd-Steinbergディザリング。
 
@@ -120,6 +121,7 @@ class DitherService:
             error_clamp: 誤差拡散クランプ値 (0=無効, 値が小さいほど強い抑制)
             red_penalty: 明部での赤ペナルティ係数 (0=無効, Lab距離に加算)
             yellow_penalty: 暗部での黄ペナルティ係数 (0=無効, Lab距離に加算)
+            csf_chroma_weight: 色差チャンネル減衰 (0.0=輝度のみ, 1.0=従来通り)
 
         Returns:
             ディザリング済みの (H, W, 3) uint8 配列
@@ -164,6 +166,20 @@ class DitherService:
 
         ec = error_clamp
         neg_ec = -error_clamp
+
+        # CSF チャンネル重み付け用定数 (BT.709 opponent 色空間)
+        # 順変換: L = Wr*R + Wg*G + Wb*B, C1 = R-G, C2 = 0.5*(R+G)-B
+        # 逆変換: 連立方程式から導出
+        use_csf = csf_chroma_weight < 1.0
+        _Wr = 0.2126
+        _Wg = 0.7152
+        _Wb = 0.0722
+        _inv_r_c1 = _Wg + 0.5 * _Wb    # 0.7513
+        _inv_g_c1 = -(_Wr + 0.5 * _Wb)  # -0.2487
+        _inv_b_c1 = 0.5 * (1.0 - _Wb) - _Wr  # 0.2513
+        _inv_rg_c2 = _Wb                # 0.0722
+        _inv_b_c2 = -(_Wr + _Wg)        # -0.9278
+        csf_w = csf_chroma_weight
 
         for y in range(h):
             row = work[y]
@@ -248,6 +264,22 @@ class DitherService:
                         err_b = ec
                     elif err_b < neg_ec:
                         err_b = neg_ec
+
+                # CSF チャンネル重み付け: 色差チャンネルを減衰
+                if use_csf:
+                    # RGB → opponent (luminance, red-green, blue-yellow)
+                    err_lum = _Wr * err_r + _Wg * err_g + _Wb * err_b
+                    err_rg = err_r - err_g
+                    err_by = 0.5 * (err_r + err_g) - err_b
+
+                    # 色差チャンネル減衰
+                    err_rg *= csf_w
+                    err_by *= csf_w
+
+                    # opponent → RGB 逆変換
+                    err_r = err_lum + _inv_r_c1 * err_rg + _inv_rg_c2 * err_by
+                    err_g = err_lum + _inv_g_c1 * err_rg + _inv_rg_c2 * err_by
+                    err_b = err_lum + _inv_b_c1 * err_rg + _inv_b_c2 * err_by
 
                 # Floyd-Steinberg エラー拡散 (スカラー演算)
                 if x + 1 < w:

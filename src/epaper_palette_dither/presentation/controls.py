@@ -45,6 +45,7 @@ class ControlPanel(QWidget):
     illuminant_red_changed = pyqtSignal(float)
     illuminant_yellow_changed = pyqtSignal(float)
     illuminant_white_changed = pyqtSignal(float)
+    csf_chroma_weight_changed = pyqtSignal(float)
     error_clamp_changed = pyqtSignal(int)
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
@@ -207,6 +208,22 @@ class ControlPanel(QWidget):
         quality_group = QGroupBox("Dithering Quality")
         quality_layout = QVBoxLayout(quality_group)
         quality_layout.setSpacing(4)
+
+        # CSF Chroma Weight
+        csf_row = QHBoxLayout()
+        csf_row.addWidget(QLabel("CSF:"))
+        self._csf_chroma_spin = QDoubleSpinBox()
+        self._csf_chroma_spin.setRange(0.0, 1.0)
+        self._csf_chroma_spin.setSingleStep(0.05)
+        self._csf_chroma_spin.setDecimals(2)
+        self._csf_chroma_spin.setValue(0.60)
+        self._csf_chroma_spin.setFixedWidth(90)
+        self._csf_chroma_spin.setToolTip(
+            "色差チャンネル減衰 (0.00=輝度のみ伝播, 1.00=従来通り)"
+        )
+        self._csf_chroma_spin.valueChanged.connect(self.csf_chroma_weight_changed.emit)
+        csf_row.addWidget(self._csf_chroma_spin)
+        quality_layout.addLayout(csf_row)
 
         # ErrClamp
         err_row = QHBoxLayout()
@@ -402,6 +419,7 @@ class ControlPanel(QWidget):
             "illuminant_red": self._illuminant_red_spin.value(),
             "illuminant_yellow": self._illuminant_yellow_spin.value(),
             "illuminant_white": self._illuminant_white_spin.value(),
+            "csf_chroma_weight": self._csf_chroma_spin.value(),
             "error_clamp": float(self._error_clamp_spin.value()),
             "red_penalty": self._red_penalty_spin.value(),
             "yellow_penalty": self._yellow_penalty_spin.value(),
@@ -419,6 +437,8 @@ class ControlPanel(QWidget):
             self._illuminant_yellow_spin.setValue(params["illuminant_yellow"])
         if "illuminant_white" in params:
             self._illuminant_white_spin.setValue(params["illuminant_white"])
+        if "csf_chroma_weight" in params:
+            self._csf_chroma_spin.setValue(params["csf_chroma_weight"])
         if "error_clamp" in params:
             self._error_clamp_spin.setValue(int(params["error_clamp"]))
         if "red_penalty" in params:

@@ -246,6 +246,7 @@ class MainWindow(QMainWindow):
         self._controls.illuminant_red_changed.connect(self._on_illuminant_red_changed)
         self._controls.illuminant_yellow_changed.connect(self._on_illuminant_yellow_changed)
         self._controls.illuminant_white_changed.connect(self._on_illuminant_white_changed)
+        self._controls.csf_chroma_weight_changed.connect(self._on_csf_chroma_weight_changed)
         self._controls.error_clamp_changed.connect(self._on_error_clamp_changed)
         self._controls.red_penalty_changed.connect(self._on_red_penalty_changed)
         self._controls.yellow_penalty_changed.connect(self._on_yellow_penalty_changed)
@@ -438,6 +439,9 @@ class MainWindow(QMainWindow):
 
     def _on_illuminant_white_changed(self, value: float) -> None:
         self._converter.illuminant_white = value
+
+    def _on_csf_chroma_weight_changed(self, value: float) -> None:
+        self._converter.csf_chroma_weight = value
 
     def _on_error_clamp_changed(self, value: int) -> None:
         self._converter.error_clamp = value
