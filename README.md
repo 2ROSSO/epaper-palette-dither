@@ -29,8 +29,8 @@ uv run pytest
 ## 機能
 
 ### ディザリング
-- **Floyd-Steinbergディザリング**: CIEDE2000色差を使用した誤差拡散ディザリング
-- **高速NumPy実装**: バッチ処理による高速ディザリング (`dither_array_fast`)
+- **Floyd-Steinbergディザリング**: Lab色差を使用した誤差拡散ディザリング
+- **高速NumPy実装**: Lab ユークリッド距離＋LUTキャッシュによる高速ディザリング (`dither_array_fast`)
 
 ### カラーモード（色変換前処理）
 4種類のカラーモードを切り替えて、ディザリング前の色変換方式を選択できる:
@@ -50,13 +50,28 @@ uv run pytest
 - BT.709 輝度重みで自動正規化し、元画像の明るさを維持
 
 ### ディザリング品質調整
-誤差拡散ディザリングの品質を制御する3つのパラメータ:
+誤差拡散ディザリングの品質を制御するパラメータ:
 
 | パラメータ | デフォルト | 範囲 | 効果 |
 |-----------|-----------|------|------|
+| **CSF** | 0.60 | 0.00–1.00 | 色差チャンネル減衰。誤差伝播を opponent 色空間で重み付けし知覚ノイズを低減（1.00=従来通り、0.00=輝度のみ伝播） |
 | **ErrClamp** | 85 | 0–128 | 誤差拡散クランプ。値が小さいほどノイズ抑制が強い（0=無効） |
-| **RedPen** | 10.0 | 0–100 | 明部での赤ペナルティ。CIEDE2000距離に加算し明部の赤ドットを抑制 |
-| **YellowPen** | 15.0 | 0–100 | 暗部での黄ペナルティ。CIEDE2000距離に加算し暗部の黄ドットを抑制 |
+| **RedPen** | 0.0 | 0–100 | 明部での赤ペナルティ。Lab距離に加算し明部の赤ドットを抑制 |
+| **YellowPen** | 0.0 | 0–100 | 暗部での黄ペナルティ。Lab距離に加算し暗部の黄ドットを抑制 |
+
+#### CSF チャンネル重み付きの仕組み
+Floyd-Steinberg の誤差伝播を BT.709 opponent 色空間（輝度 / 赤-緑 / 青-黄）に変換し、
+色差チャンネル (赤-緑, 青-黄) の伝播量を CSF 値で減衰してから RGB に逆変換する。
+人間の視覚系は高周波の色差に鈍感であるため、色差ノイズを選択的に抑制でき、
+ディザパターンの知覚的な滑らかさが向上する。
+
+### 明度リマッピング (CLAHE)
+ガマットマッピング後・ディザリング前に L* チャンネルへ CLAHE（Contrast Limited Adaptive Histogram Equalization）を適用し、パレットの明度範囲を有効活用する。色域外の色同士の明度差を拡大し、ディザリング結果のコントラストを改善する。
+
+| パラメータ | デフォルト | 範囲 | 効果 |
+|-----------|-----------|------|------|
+| **CLAHE** (チェックボックス) | OFF | ON/OFF | 明度リマッピングの有効/無効 |
+| **Clip** | 2.00 | 1.00–4.00 | コントラスト制限係数。値が大きいほど均等化が強い |
 
 ### Reconvert（逆ディザリング）
 ディザリング結果から元画像の近似復元を行う機能。ディザリングパラメータの効果確認に有用。
@@ -74,16 +89,27 @@ uv run pytest
 ### パラメータ自動最適化（Optimize）
 Optuna TPE (Tree-structured Parzen Estimator) により、Convert パラメータを自動探索して元画像との類似度を最大化する。
 
-- **評価指標**: PSNR・SSIM・Lab ΔE・Histogram Correlation の4メトリクス複合スコア
+- **評価指標**: PSNR・SSIM・Lab ΔE・S-CIELAB ΔE・Histogram Correlation の5メトリクス複合スコア
 - **探索対象**: カラーモードに応じた Convert パラメータのみ（Reconvert は blur=1, bright=1.0 固定）
 - **Trial 数**: Optimize ボタン右クリックで変更可能（25 / 50 / 100 / 200 / 500、初期値 50）
 - **初期値**: 現在の UI パラメータを初期候補として登録（step にスナップ）
 
 | ColorMode | 探索パラメータ数 | 探索対象 |
 |-----------|-----------------|----------|
-| Illuminant | 6 | illuminant_red/yellow/white, error_clamp, red_penalty, yellow_penalty |
-| Grayout | 4 | gamut_strength, error_clamp, red_penalty, yellow_penalty |
-| Anti-Saturation / Centroid Clip | 3 | error_clamp, red_penalty, yellow_penalty |
+| Illuminant | 9 | illuminant_red/yellow/white, csf_chroma_weight, error_clamp, red_penalty, yellow_penalty, lightness_remap, lightness_clip_limit |
+| Grayout | 7 | gamut_strength, csf_chroma_weight, error_clamp, red_penalty, yellow_penalty, lightness_remap, lightness_clip_limit |
+| Anti-Saturation / Centroid Clip | 6 | csf_chroma_weight, error_clamp, red_penalty, yellow_penalty, lightness_remap, lightness_clip_limit |
+
+#### S-CIELAB 評価メトリクス
+Optimizer の評価関数に Zhang & Wandell (1997) の S-CIELAB を導入。XYZ → Opponent 色空間で視覚系の空間周波数感度 (CSF) に基づくガウシアンフィルタを適用後に Lab ΔE を算出する。ディザリングパターンの高周波色差が空間ブラーで知覚的に消えるため、通常の Lab ΔE より人間の見え方に近い色差評価が可能。
+
+| メトリクス | 重み | 説明 |
+|-----------|------|------|
+| SSIM | 0.30 | 構造的類似性 |
+| S-CIELAB ΔE | 0.25 | 知覚的色差（空間CSFフィルタ後） |
+| Lab ΔE | 0.20 | ピクセル単位色差 |
+| PSNR | 0.15 | ピーク信号対雑音比 |
+| Histogram Correlation | 0.10 | ヒストグラム相関 |
 
 ### GUI
 - **3パネル並列表示**: Original / Dithered Preview / Reconverted を横並びで比較
@@ -125,7 +151,7 @@ src/epaper_palette_dither/
 │   ├── dithering.py          # Floyd-Steinberg誤差拡散
 │   └── image_model.py        # ColorMode, DisplayPreset, ImageSpec
 ├── application/          # アプリケーション層（ユースケース）
-│   ├── dither_service.py     # ディザリングサービス（ErrClamp/RedPen/YellowPen対応）
+│   ├── dither_service.py     # ディザリングサービス（CSF重み付き誤差拡散、ErrClamp/RedPen/YellowPen対応）
 │   ├── image_converter.py    # 変換パイプライン（リサイズ→色処理→ディザ、品質パラメータ管理）
 │   ├── optimizer_service.py  # Optuna TPE 自動最適化（Convertパラメータ探索）
 │   └── reconvert_service.py  # 逆ディザリング（Blur→逆ガマット→自動輝度補正）
@@ -133,8 +159,9 @@ src/epaper_palette_dither/
 │   ├── color_space.py        # sRGB⇔Linear, RGB⇔Lab バッチ変換
 │   ├── gamut_mapping.py      # Grayout, Anti-Saturation, Centroid Clip, Illuminant
 │   ├── image_io.py           # 画像読込/保存/リサイズ/回転
-│   ├── image_metrics.py      # PSNR, SSIM, Lab ΔE, Histogram Correlation, 複合スコア
-│   └── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
+│   ├── image_metrics.py      # PSNR, SSIM, Lab ΔE, S-CIELAB ΔE, Histogram Correlation, 複合スコア
+│   ├── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
+│   └── lightness_remap.py    # CLAHE 明度リマッピング（L*チャンネル適応的ヒストグラム均等化）
 └── presentation/         # プレゼンテーション層（PyQt6 GUI）
     ├── controls.py           # パラメータ制御パネル（2段構成: 変換 + Reconvert）
     ├── image_viewer.py       # 画像表示ウィジェット（D&D対応）

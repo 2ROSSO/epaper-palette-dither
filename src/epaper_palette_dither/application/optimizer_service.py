@@ -64,6 +64,9 @@ def _apply_converter_params(
     converter.error_clamp = int(params.get("error_clamp", 85))
     converter.red_penalty = params.get("red_penalty", 0.0)
     converter.yellow_penalty = params.get("yellow_penalty", 0.0)
+    converter.csf_chroma_weight = params.get("csf_chroma_weight", 0.6)
+    converter.lightness_remap = params.get("lightness_remap", 0.0) >= 0.5
+    converter.lightness_clip_limit = params.get("lightness_clip_limit", 2.0)
 
 
 def _suggest_params(
@@ -93,6 +96,9 @@ class OptimizerService:
             ParamDef("error_clamp", 0, 128, 32, 8, is_int=True),
             ParamDef("red_penalty", 0.0, 100.0, 20, 5),
             ParamDef("yellow_penalty", 0.0, 100.0, 20, 5),
+            ParamDef("csf_chroma_weight", 0.0, 1.0, 0.2, 0.05),
+            ParamDef("lightness_remap", 0.0, 1.0, 1.0, 1.0),
+            ParamDef("lightness_clip_limit", 1.0, 4.0, 1.0, 0.25),
         ]
 
         if color_mode == ColorMode.ILLUMINANT:
@@ -254,6 +260,7 @@ class OptimizerService:
             f"  PSNR={best_metrics_final['psnr']:.2f} "
             f"SSIM={best_metrics_final['ssim']:.4f} "
             f"LabDE={best_metrics_final['lab_de']:.2f} "
+            f"S-CIELAB={best_metrics_final['scielab_de']:.2f} "
             f"Hist={best_metrics_final['hist_corr']:.4f}"
         )
         for pd in param_defs:

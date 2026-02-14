@@ -28,6 +28,7 @@
 <!-- Load modules -->
 <script src="../src/color.js"></script>
 <script src="../src/gamut-mapping.js"></script>
+<script src="../src/lightness-remap.js"></script>
 <script src="../src/dithering.js"></script>
 
 <script>
@@ -288,11 +289,59 @@ function testDitherModule(vectors) {
 
   for (const [key, tc] of Object.entries(vectors)) {
     const imgData = arrayToImageData(tc.input);
-    const result = floydSteinbergDither(imgData, EINK_PALETTE, tc.errorClamp, tc.redPenalty, tc.yellowPenalty);
+    const result = floydSteinbergDither(imgData, EINK_PALETTE, tc.errorClamp, tc.redPenalty, tc.yellowPenalty, tc.csfChromaWeight ?? 1.0);
     const resultArr = imageDataToArray(result);
     const pass = approxEqualDeep(resultArr, tc.expected, EPS);
     addResult(
       `floydSteinbergDither — ${key}`,
+      pass,
+      `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
+    );
+  }
+}
+
+function testClaheModule(vectors) {
+  if (typeof claheLightness === 'undefined' || !vectors) return;
+
+  function arrayToImageData(arr3d) {
+    const h = arr3d.length;
+    const w = arr3d[0].length;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        data[idx]     = arr3d[y][x][0];
+        data[idx + 1] = arr3d[y][x][1];
+        data[idx + 2] = arr3d[y][x][2];
+        data[idx + 3] = 255;
+      }
+    }
+    return { data, width: w, height: h };
+  }
+
+  function imageDataToArray(imgData) {
+    const { data, width, height } = imgData;
+    const result = [];
+    for (let y = 0; y < height; y++) {
+      const row = [];
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        row.push([data[idx], data[idx+1], data[idx+2]]);
+      }
+      result.push(row);
+    }
+    return result;
+  }
+
+  addSection('lightness-remap.js — CLAHE');
+
+  for (const [key, tc] of Object.entries(vectors)) {
+    const imgData = arrayToImageData(tc.input);
+    claheLightness(imgData, tc.clipLimit, tc.gridSize);
+    const resultArr = imageDataToArray(imgData);
+    const pass = approxEqualDeep(resultArr, tc.expected, 2);
+    addResult(
+      `claheLightness — ${key}`,
       pass,
       `expected: ${JSON.stringify(tc.expected)}\ngot: ${JSON.stringify(resultArr)}`
     );
@@ -305,6 +354,7 @@ async function run() {
 
     testColorModule(vectors.color);
     testGamutModule(vectors.gamut);
+    testClaheModule(vectors.clahe);
     testDitherModule(vectors.dither);
 
     const summaryEl = document.getElementById('summary');

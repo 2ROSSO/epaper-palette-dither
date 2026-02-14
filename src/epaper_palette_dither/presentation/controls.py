@@ -45,10 +45,13 @@ class ControlPanel(QWidget):
     illuminant_red_changed = pyqtSignal(float)
     illuminant_yellow_changed = pyqtSignal(float)
     illuminant_white_changed = pyqtSignal(float)
+    csf_chroma_weight_changed = pyqtSignal(float)
     error_clamp_changed = pyqtSignal(int)
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
     use_lab_changed = pyqtSignal(bool)
+    lightness_remap_changed = pyqtSignal(bool)
+    lightness_clip_limit_changed = pyqtSignal(float)
     blur_radius_changed = pyqtSignal(int)
     brightness_changed = pyqtSignal(float)
 
@@ -208,6 +211,22 @@ class ControlPanel(QWidget):
         quality_layout = QVBoxLayout(quality_group)
         quality_layout.setSpacing(4)
 
+        # CSF Chroma Weight
+        csf_row = QHBoxLayout()
+        csf_row.addWidget(QLabel("CSF:"))
+        self._csf_chroma_spin = QDoubleSpinBox()
+        self._csf_chroma_spin.setRange(0.0, 1.0)
+        self._csf_chroma_spin.setSingleStep(0.05)
+        self._csf_chroma_spin.setDecimals(2)
+        self._csf_chroma_spin.setValue(0.60)
+        self._csf_chroma_spin.setFixedWidth(90)
+        self._csf_chroma_spin.setToolTip(
+            "色差チャンネル減衰 (0.00=輝度のみ伝播, 1.00=従来通り)"
+        )
+        self._csf_chroma_spin.valueChanged.connect(self.csf_chroma_weight_changed.emit)
+        csf_row.addWidget(self._csf_chroma_spin)
+        quality_layout.addLayout(csf_row)
+
         # ErrClamp
         err_row = QHBoxLayout()
         err_row.addWidget(QLabel("ErrClamp:"))
@@ -229,7 +248,7 @@ class ControlPanel(QWidget):
         self._red_penalty_spin.setDecimals(1)
         self._red_penalty_spin.setValue(0.0)
         self._red_penalty_spin.setFixedWidth(90)
-        self._red_penalty_spin.setToolTip("明部での赤ペナルティ (0=無効, CIEDE2000距離に加算)")
+        self._red_penalty_spin.setToolTip("明部での赤ペナルティ (0=無効, Lab距離に加算)")
         self._red_penalty_spin.valueChanged.connect(self.red_penalty_changed.emit)
         red_row.addWidget(self._red_penalty_spin)
         quality_layout.addLayout(red_row)
@@ -243,10 +262,31 @@ class ControlPanel(QWidget):
         self._yellow_penalty_spin.setDecimals(1)
         self._yellow_penalty_spin.setValue(0.0)
         self._yellow_penalty_spin.setFixedWidth(90)
-        self._yellow_penalty_spin.setToolTip("暗部での黄ペナルティ (0=無効, CIEDE2000距離に加算)")
+        self._yellow_penalty_spin.setToolTip("暗部での黄ペナルティ (0=無効, Lab距離に加算)")
         self._yellow_penalty_spin.valueChanged.connect(self.yellow_penalty_changed.emit)
         yel_row.addWidget(self._yellow_penalty_spin)
         quality_layout.addLayout(yel_row)
+
+        # CLAHE
+        clahe_row = QHBoxLayout()
+        self._clahe_check = QCheckBox("CLAHE")
+        self._clahe_check.setToolTip("L* チャンネルに適応的ヒストグラム均等化を適用")
+        self._clahe_check.setChecked(False)
+        self._clahe_check.toggled.connect(self._on_clahe_toggled)
+        clahe_row.addWidget(self._clahe_check)
+
+        clahe_row.addWidget(QLabel("Clip:"))
+        self._clahe_clip_spin = QDoubleSpinBox()
+        self._clahe_clip_spin.setRange(1.0, 4.0)
+        self._clahe_clip_spin.setSingleStep(0.25)
+        self._clahe_clip_spin.setDecimals(2)
+        self._clahe_clip_spin.setValue(2.0)
+        self._clahe_clip_spin.setFixedWidth(90)
+        self._clahe_clip_spin.setToolTip("CLAHE コントラスト制限 (1.0=弱い, 4.0=強い)")
+        self._clahe_clip_spin.setEnabled(False)
+        self._clahe_clip_spin.valueChanged.connect(self.lightness_clip_limit_changed.emit)
+        clahe_row.addWidget(self._clahe_clip_spin)
+        quality_layout.addLayout(clahe_row)
 
         row1.addWidget(quality_group)
 
@@ -402,9 +442,12 @@ class ControlPanel(QWidget):
             "illuminant_red": self._illuminant_red_spin.value(),
             "illuminant_yellow": self._illuminant_yellow_spin.value(),
             "illuminant_white": self._illuminant_white_spin.value(),
+            "csf_chroma_weight": self._csf_chroma_spin.value(),
             "error_clamp": float(self._error_clamp_spin.value()),
             "red_penalty": self._red_penalty_spin.value(),
             "yellow_penalty": self._yellow_penalty_spin.value(),
+            "lightness_remap": 1.0 if self._clahe_check.isChecked() else 0.0,
+            "lightness_clip_limit": self._clahe_clip_spin.value(),
             "blur_radius": float(self._blur_radius_spin.value()),
             "brightness": self._brightness_spin.value(),
         }
@@ -419,16 +462,26 @@ class ControlPanel(QWidget):
             self._illuminant_yellow_spin.setValue(params["illuminant_yellow"])
         if "illuminant_white" in params:
             self._illuminant_white_spin.setValue(params["illuminant_white"])
+        if "csf_chroma_weight" in params:
+            self._csf_chroma_spin.setValue(params["csf_chroma_weight"])
         if "error_clamp" in params:
             self._error_clamp_spin.setValue(int(params["error_clamp"]))
         if "red_penalty" in params:
             self._red_penalty_spin.setValue(params["red_penalty"])
         if "yellow_penalty" in params:
             self._yellow_penalty_spin.setValue(params["yellow_penalty"])
+        if "lightness_remap" in params:
+            self._clahe_check.setChecked(params["lightness_remap"] >= 0.5)
+        if "lightness_clip_limit" in params:
+            self._clahe_clip_spin.setValue(params["lightness_clip_limit"])
         if "blur_radius" in params:
             self._blur_radius_spin.setValue(int(params["blur_radius"]))
         if "brightness" in params:
             self._brightness_spin.setValue(params["brightness"])
+
+    def _on_clahe_toggled(self, checked: bool) -> None:
+        self._clahe_clip_spin.setEnabled(checked)
+        self.lightness_remap_changed.emit(checked)
 
     def _on_illuminant_reset(self) -> None:
         self._illuminant_red_spin.setValue(_ILLUMINANT_RED_DEFAULT)

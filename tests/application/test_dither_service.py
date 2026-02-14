@@ -690,3 +690,108 @@ class TestDitherLut:
         rate = agree / len(samples)
         # 量子化誤差の影響で境界付近では不一致が起きるが、95%以上は一致するはず
         assert rate >= 0.95, f"LUT一致率 {rate:.1%} が低すぎ"
+
+
+class TestCsfChromaWeight:
+    """CSF チャンネル重み付き誤差拡散のテスト。"""
+
+    def setup_method(self) -> None:
+        self.service = DitherService()
+
+    def test_weight_1_matches_default(self) -> None:
+        """csf_chroma_weight=1.0 は従来と同じ結果。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result_default = self.service.dither_array_fast(array, EINK_PALETTE)
+        result_csf1 = self.service.dither_array_fast(
+            array, EINK_PALETTE, csf_chroma_weight=1.0,
+        )
+        np.testing.assert_array_equal(result_default, result_csf1)
+
+    def test_weight_0_only_palette_colors(self) -> None:
+        """csf_chroma_weight=0.0 でも出力はパレット4色のみ。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE, csf_chroma_weight=0.0,
+        )
+        assert result.shape == (8, 8, 3)
+        assert result.dtype == np.uint8
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(8):
+            for x in range(8):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_weight_06_only_palette_colors(self) -> None:
+        """csf_chroma_weight=0.6 でも出力はパレット4色のみ。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE, csf_chroma_weight=0.6,
+        )
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(8):
+            for x in range(8):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_weight_06_differs_from_1(self) -> None:
+        """csf_chroma_weight=0.6 は weight=1.0 と異なる結果。"""
+        array = np.random.default_rng(42).integers(0, 256, (16, 16, 3), dtype=np.uint8)
+        result_1 = self.service.dither_array_fast(
+            array, EINK_PALETTE, csf_chroma_weight=1.0,
+        )
+        result_06 = self.service.dither_array_fast(
+            array, EINK_PALETTE, csf_chroma_weight=0.6,
+        )
+        assert not np.array_equal(result_1, result_06)
+
+    def test_opponent_roundtrip_preserves_error(self) -> None:
+        """opponent 変換の往復でエラーが保存される（weight=1.0の場合）。"""
+        # BT.709 opponent 変換の数値精度を検証
+        Wr, Wg, Wb = 0.2126, 0.7152, 0.0722
+        rng = np.random.default_rng(42)
+        for _ in range(100):
+            r, g, b = rng.uniform(-128, 128, 3)
+            # 順変換
+            lum = Wr * r + Wg * g + Wb * b
+            c1 = r - g
+            c2 = 0.5 * (r + g) - b
+            # 逆変換
+            r2 = lum + (Wg + 0.5 * Wb) * c1 + Wb * c2
+            g2 = lum - (Wr + 0.5 * Wb) * c1 + Wb * c2
+            b2 = lum + (0.5 * (1 - Wb) - Wr) * c1 - (Wr + Wg) * c2
+            assert abs(r2 - r) < 1e-10
+            assert abs(g2 - g) < 1e-10
+            assert abs(b2 - b) < 1e-10
+
+    def test_converter_csf_property(self) -> None:
+        """ImageConverter の csf_chroma_weight プロパティ。"""
+        converter = ImageConverter()
+        assert converter.csf_chroma_weight == 0.6  # デフォルト
+        converter.csf_chroma_weight = 0.3
+        assert converter.csf_chroma_weight == 0.3
+        converter.csf_chroma_weight = -0.5
+        assert converter.csf_chroma_weight == 0.0
+        converter.csf_chroma_weight = 1.5
+        assert converter.csf_chroma_weight == 1.0
+
+    def test_converter_with_csf_produces_palette(self) -> None:
+        """ImageConverter でデフォルト csf_chroma_weight=0.6 での変換。"""
+        array = np.random.default_rng(42).integers(0, 256, (50, 80, 3), dtype=np.uint8)
+        converter = ImageConverter()
+        spec = ImageSpec(target_width=20, target_height=15)
+        result = converter.convert_array(array, spec)
+
+        assert result.shape == (15, 20, 3)
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(result.shape[0]):
+            for x in range(result.shape[1]):
+                assert tuple(result[y, x]) in palette_set
+
+    def test_csf_with_error_clamp(self) -> None:
+        """csf_chroma_weight と error_clamp の併用。"""
+        array = np.random.default_rng(42).integers(0, 256, (8, 8, 3), dtype=np.uint8)
+        result = self.service.dither_array_fast(
+            array, EINK_PALETTE, error_clamp=50, csf_chroma_weight=0.4,
+        )
+        palette_set = {c.to_tuple() for c in EINK_PALETTE}
+        for y in range(8):
+            for x in range(8):
+                assert tuple(result[y, x]) in palette_set

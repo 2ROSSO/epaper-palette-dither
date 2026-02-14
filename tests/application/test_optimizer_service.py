@@ -21,35 +21,38 @@ def _make_white_image(h: int = 32, w: int = 32) -> np.ndarray:
 class TestGetParamDefs:
     """ColorMode別のパラメータ定義を検証。"""
 
-    def test_illuminant_has_6_params(self) -> None:
+    def test_illuminant_has_9_params(self) -> None:
         service = OptimizerService()
         defs = service.get_param_defs(ColorMode.ILLUMINANT)
-        assert len(defs) == 6
+        assert len(defs) == 9  # 3 illuminant + 6 common
         names = [d.name for d in defs]
         assert "illuminant_red" in names
         assert "illuminant_yellow" in names
         assert "illuminant_white" in names
+        assert "csf_chroma_weight" in names
+        assert "lightness_remap" in names
+        assert "lightness_clip_limit" in names
         # Reconvert パラメータは探索対象外
         assert "blur_radius" not in names
         assert "brightness" not in names
 
-    def test_grayout_has_4_params(self) -> None:
+    def test_grayout_has_7_params(self) -> None:
         service = OptimizerService()
         defs = service.get_param_defs(ColorMode.GRAYOUT)
-        assert len(defs) == 4
+        assert len(defs) == 7  # 1 gamut + 6 common
         names = [d.name for d in defs]
         assert "gamut_strength" in names
         assert "illuminant_red" not in names
 
-    def test_anti_saturation_has_3_params(self) -> None:
+    def test_anti_saturation_has_6_params(self) -> None:
         service = OptimizerService()
         defs = service.get_param_defs(ColorMode.ANTI_SATURATION)
-        assert len(defs) == 3
+        assert len(defs) == 6  # 6 common
 
-    def test_centroid_clip_has_3_params(self) -> None:
+    def test_centroid_clip_has_6_params(self) -> None:
         service = OptimizerService()
         defs = service.get_param_defs(ColorMode.CENTROID_CLIP)
-        assert len(defs) == 3
+        assert len(defs) == 6  # 6 common
 
     def test_param_ranges_valid(self) -> None:
         """全 ParamDef の min < max かつ step > 0 を検証。"""

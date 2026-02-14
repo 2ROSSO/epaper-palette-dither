@@ -24,6 +24,7 @@ from epaper_palette_dither.infrastructure.gamut_mapping import (
     gamut_map,
 )
 from epaper_palette_dither.infrastructure.image_io import load_image, resize_image, save_image
+from epaper_palette_dither.infrastructure.lightness_remap import clahe_lightness
 
 
 ProgressCallback = Callable[[str, float], None]
@@ -49,6 +50,9 @@ class ImageConverter:
         self._red_penalty: float = 0.0
         self._yellow_penalty: float = 0.0
         self._use_lab_space: bool = True
+        self._csf_chroma_weight: float = 0.6
+        self._lightness_remap: bool = False
+        self._lightness_clip_limit: float = 2.0
 
     @property
     def gamut_strength(self) -> float:
@@ -122,6 +126,38 @@ class ImageConverter:
     def use_lab_space(self, value: bool) -> None:
         self._use_lab_space = value
 
+    @property
+    def csf_chroma_weight(self) -> float:
+        return self._csf_chroma_weight
+
+    @csf_chroma_weight.setter
+    def csf_chroma_weight(self, value: float) -> None:
+        self._csf_chroma_weight = max(0.0, min(1.0, value))
+
+    @property
+    def lightness_remap(self) -> bool:
+        return self._lightness_remap
+
+    @lightness_remap.setter
+    def lightness_remap(self, value: bool) -> None:
+        self._lightness_remap = value
+
+    @property
+    def lightness_clip_limit(self) -> float:
+        return self._lightness_clip_limit
+
+    @lightness_clip_limit.setter
+    def lightness_clip_limit(self, value: float) -> None:
+        self._lightness_clip_limit = max(1.0, min(4.0, value))
+
+    def _apply_lightness_remap(
+        self, rgb_array: npt.NDArray[np.uint8],
+    ) -> npt.NDArray[np.uint8]:
+        """明度リマッピング (CLAHE) を適用。無効時はそのまま返す。"""
+        if not self._lightness_remap:
+            return rgb_array
+        return clahe_lightness(rgb_array, self._lightness_clip_limit)
+
     def _apply_color_processing(
         self, rgb_array: npt.NDArray[np.uint8],
     ) -> npt.NDArray[np.uint8]:
@@ -155,9 +191,11 @@ class ImageConverter:
             ディザリング済みの (H, W, 3) uint8 配列
         """
         mapped = self._apply_color_processing(resized)
+        mapped = self._apply_lightness_remap(mapped)
         return self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
     def convert(
@@ -195,6 +233,7 @@ class ImageConverter:
             progress("ガマットマッピング", 0.3)
 
         mapped = self._apply_color_processing(resized)
+        mapped = self._apply_lightness_remap(mapped)
 
         if progress:
             progress("ディザリング", 0.5)
@@ -202,6 +241,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
         if progress:
@@ -250,6 +290,7 @@ class ImageConverter:
             progress("ガマットマッピング", 0.25)
 
         mapped = self._apply_color_processing(resized)
+        mapped = self._apply_lightness_remap(mapped)
 
         if progress:
             progress("ディザリング", 0.5)
@@ -257,6 +298,7 @@ class ImageConverter:
         result = self._dither_service.dither_array_fast(
             mapped, self._palette, self._error_clamp,
             self._red_penalty, self._yellow_penalty,
+            self._csf_chroma_weight,
         )
 
         if progress:
@@ -294,6 +336,7 @@ class ImageConverter:
             progress("ガマットマッピング", 0.3)
 
         mapped = self._apply_color_processing(resized)
+        mapped = self._apply_lightness_remap(mapped)
 
         if progress:
             progress("完了", 1.0)
