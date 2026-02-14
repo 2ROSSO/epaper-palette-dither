@@ -34,6 +34,9 @@ htmlcov/
 # Data / Outputs
 data/outputs/
 
+# Plan history (local context preservation)
+.history/
+
 # Reference repositories
 arrayfy_repo/
 .reference/
