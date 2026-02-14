@@ -251,6 +251,8 @@ class MainWindow(QMainWindow):
         self._controls.red_penalty_changed.connect(self._on_red_penalty_changed)
         self._controls.yellow_penalty_changed.connect(self._on_yellow_penalty_changed)
         self._controls.use_lab_changed.connect(self._on_use_lab_changed)
+        self._controls.lightness_remap_changed.connect(self._on_lightness_remap_changed)
+        self._controls.lightness_clip_limit_changed.connect(self._on_lightness_clip_limit_changed)
         self._controls.optimize_clicked.connect(self._on_optimize)
         self._controls.set_convert_enabled(False)
         self._controls.set_gamut_only_enabled(False)
@@ -454,6 +456,12 @@ class MainWindow(QMainWindow):
 
     def _on_use_lab_changed(self, enabled: bool) -> None:
         self._converter.use_lab_space = enabled
+
+    def _on_lightness_remap_changed(self, enabled: bool) -> None:
+        self._converter.lightness_remap = enabled
+
+    def _on_lightness_clip_limit_changed(self, value: float) -> None:
+        self._converter.lightness_clip_limit = value
 
     def _on_optimize(self) -> None:
         if self._source_image is None:

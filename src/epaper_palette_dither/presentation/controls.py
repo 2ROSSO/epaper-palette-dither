@@ -50,6 +50,8 @@ class ControlPanel(QWidget):
     red_penalty_changed = pyqtSignal(float)
     yellow_penalty_changed = pyqtSignal(float)
     use_lab_changed = pyqtSignal(bool)
+    lightness_remap_changed = pyqtSignal(bool)
+    lightness_clip_limit_changed = pyqtSignal(float)
     blur_radius_changed = pyqtSignal(int)
     brightness_changed = pyqtSignal(float)
 
@@ -265,6 +267,27 @@ class ControlPanel(QWidget):
         yel_row.addWidget(self._yellow_penalty_spin)
         quality_layout.addLayout(yel_row)
 
+        # CLAHE
+        clahe_row = QHBoxLayout()
+        self._clahe_check = QCheckBox("CLAHE")
+        self._clahe_check.setToolTip("L* チャンネルに適応的ヒストグラム均等化を適用")
+        self._clahe_check.setChecked(False)
+        self._clahe_check.toggled.connect(self._on_clahe_toggled)
+        clahe_row.addWidget(self._clahe_check)
+
+        clahe_row.addWidget(QLabel("Clip:"))
+        self._clahe_clip_spin = QDoubleSpinBox()
+        self._clahe_clip_spin.setRange(1.0, 4.0)
+        self._clahe_clip_spin.setSingleStep(0.25)
+        self._clahe_clip_spin.setDecimals(2)
+        self._clahe_clip_spin.setValue(2.0)
+        self._clahe_clip_spin.setFixedWidth(90)
+        self._clahe_clip_spin.setToolTip("CLAHE コントラスト制限 (1.0=弱い, 4.0=強い)")
+        self._clahe_clip_spin.setEnabled(False)
+        self._clahe_clip_spin.valueChanged.connect(self.lightness_clip_limit_changed.emit)
+        clahe_row.addWidget(self._clahe_clip_spin)
+        quality_layout.addLayout(clahe_row)
+
         row1.addWidget(quality_group)
 
         main_layout.addLayout(row1)
@@ -423,6 +446,8 @@ class ControlPanel(QWidget):
             "error_clamp": float(self._error_clamp_spin.value()),
             "red_penalty": self._red_penalty_spin.value(),
             "yellow_penalty": self._yellow_penalty_spin.value(),
+            "lightness_remap": 1.0 if self._clahe_check.isChecked() else 0.0,
+            "lightness_clip_limit": self._clahe_clip_spin.value(),
             "blur_radius": float(self._blur_radius_spin.value()),
             "brightness": self._brightness_spin.value(),
         }
@@ -445,10 +470,18 @@ class ControlPanel(QWidget):
             self._red_penalty_spin.setValue(params["red_penalty"])
         if "yellow_penalty" in params:
             self._yellow_penalty_spin.setValue(params["yellow_penalty"])
+        if "lightness_remap" in params:
+            self._clahe_check.setChecked(params["lightness_remap"] >= 0.5)
+        if "lightness_clip_limit" in params:
+            self._clahe_clip_spin.setValue(params["lightness_clip_limit"])
         if "blur_radius" in params:
             self._blur_radius_spin.setValue(int(params["blur_radius"]))
         if "brightness" in params:
             self._brightness_spin.setValue(params["brightness"])
+
+    def _on_clahe_toggled(self, checked: bool) -> None:
+        self._clahe_clip_spin.setEnabled(checked)
+        self.lightness_remap_changed.emit(checked)
 
     def _on_illuminant_reset(self) -> None:
         self._illuminant_red_spin.setValue(_ILLUMINANT_RED_DEFAULT)
