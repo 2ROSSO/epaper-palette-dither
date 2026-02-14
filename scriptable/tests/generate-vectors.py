@@ -33,6 +33,7 @@ from epaper_palette_dither.infrastructure.gamut_mapping import (
     apply_illuminant,
     gamut_map,
 )
+from epaper_palette_dither.infrastructure.lightness_remap import clahe_lightness
 from epaper_palette_dither.application.dither_service import DitherService
 
 
@@ -242,6 +243,28 @@ def generate_dither_vectors() -> dict:
         "expected": result.tolist(),
     }
 
+    # CSF chroma weight 付き
+    result = service.dither_array_fast(test_image, error_clamp=85, csf_chroma_weight=0.6)
+    vectors["csfWeight06"] = {
+        "input": test_image.tolist(),
+        "errorClamp": 85,
+        "redPenalty": 0.0,
+        "yellowPenalty": 0.0,
+        "csfChromaWeight": 0.6,
+        "expected": result.tolist(),
+    }
+
+    # CSF chroma weight = 0.0 (輝度のみ)
+    result = service.dither_array_fast(test_image, error_clamp=85, csf_chroma_weight=0.0)
+    vectors["csfWeight00"] = {
+        "input": test_image.tolist(),
+        "errorClamp": 85,
+        "redPenalty": 0.0,
+        "yellowPenalty": 0.0,
+        "csfChromaWeight": 0.0,
+        "expected": result.tolist(),
+    }
+
     # 単色画像テスト
     for color_name, color in [("white", [255, 255, 255]), ("black", [0, 0, 0]),
                                ("red", [200, 0, 0]), ("gray", [128, 128, 128])]:
@@ -258,6 +281,52 @@ def generate_dither_vectors() -> dict:
     return vectors
 
 
+def generate_clahe_vectors() -> dict:
+    """CLAHE テストベクトル生成。"""
+    vectors = {}
+
+    # 4×4 グラデーション画像
+    gradient = np.zeros((4, 4, 3), dtype=np.uint8)
+    for y in range(4):
+        for x in range(4):
+            val = int((y * 4 + x) / 15 * 255)
+            gradient[y, x] = [val, val, val]
+
+    # デフォルト clip_limit=2.0
+    result = clahe_lightness(gradient.copy(), clip_limit=2.0, grid_size=2)
+    vectors["gradient_clip2"] = {
+        "input": gradient.tolist(),
+        "clipLimit": 2.0,
+        "gridSize": 2,
+        "expected": result.tolist(),
+    }
+
+    # 強い clip_limit=4.0
+    result = clahe_lightness(gradient.copy(), clip_limit=4.0, grid_size=2)
+    vectors["gradient_clip4"] = {
+        "input": gradient.tolist(),
+        "clipLimit": 4.0,
+        "gridSize": 2,
+        "expected": result.tolist(),
+    }
+
+    # 3×3 カラー画像
+    color_image = np.array([
+        [[255, 0, 0],   [0, 255, 0],   [0, 0, 255]],
+        [[255, 255, 0], [128, 128, 128], [255, 0, 255]],
+        [[0, 255, 255], [200, 100, 50], [50, 50, 50]],
+    ], dtype=np.uint8)
+    result = clahe_lightness(color_image.copy(), clip_limit=2.0, grid_size=2)
+    vectors["color_clip2"] = {
+        "input": color_image.tolist(),
+        "clipLimit": 2.0,
+        "gridSize": 2,
+        "expected": result.tolist(),
+    }
+
+    return vectors
+
+
 def main() -> None:
     print("Generating test vectors...")
 
@@ -265,6 +334,7 @@ def main() -> None:
         "color": generate_color_vectors(),
         "gamut": generate_gamut_vectors(),
         "dither": generate_dither_vectors(),
+        "clahe": generate_clahe_vectors(),
     }
 
     output_path = Path(__file__).parent / "test-vectors.json"
@@ -279,7 +349,8 @@ def main() -> None:
     )
     n_gamut = len(all_vectors["gamut"])
     n_dither = len(all_vectors["dither"])
-    print(f"Generated: {n_color} color, {n_gamut} gamut, {n_dither} dither vectors")
+    n_clahe = len(all_vectors["clahe"])
+    print(f"Generated: {n_color} color, {n_gamut} gamut, {n_dither} dither, {n_clahe} clahe vectors")
     print(f"Output: {output_path}")
 
 

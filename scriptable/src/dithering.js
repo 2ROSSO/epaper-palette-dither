@@ -8,6 +8,7 @@
  *   - errorClamp: 誤差拡散クランプ値 (0=無効)
  *   - redPenalty: 明部での赤ペナルティ
  *   - yellowPenalty: 暗部での黄ペナルティ
+ *   - csfChromaWeight: 色差チャンネル減衰 (0.0=輝度のみ, 1.0=従来通り)
  */
 
 /**
@@ -20,13 +21,15 @@
  * @param {number} errorClamp - 誤差クランプ (0=無効)
  * @param {number} redPenalty - 赤ペナルティ係数
  * @param {number} yellowPenalty - 黄ペナルティ係数
+ * @param {number} [csfChromaWeight=1.0] - 色差チャンネル減衰 (0.0=輝度のみ, 1.0=従来通り)
  * @returns {{data: Uint8ClampedArray, width: number, height: number}}
  */
-function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellowPenalty) {
+function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellowPenalty, csfChromaWeight) {
   palette = palette || EINK_PALETTE;
   errorClamp = errorClamp || 0;
   redPenalty = redPenalty || 0;
   yellowPenalty = yellowPenalty || 0;
+  csfChromaWeight = csfChromaWeight ?? 1.0;
 
   const { data, width, height } = imageData;
   const usePenalty = redPenalty > 0 || yellowPenalty > 0;
@@ -88,6 +91,18 @@ function floydSteinbergDither(imageData, palette, errorClamp, redPenalty, yellow
         if (errR > errorClamp) errR = errorClamp; else if (errR < -errorClamp) errR = -errorClamp;
         if (errG > errorClamp) errG = errorClamp; else if (errG < -errorClamp) errG = -errorClamp;
         if (errB > errorClamp) errB = errorClamp; else if (errB < -errorClamp) errB = -errorClamp;
+      }
+
+      // CSF チャンネル重み付け (BT.709 opponent 色空間)
+      if (csfChromaWeight < 1.0) {
+        const errLum = 0.2126 * errR + 0.7152 * errG + 0.0722 * errB;
+        let errRG = errR - errG;
+        let errBY = 0.5 * (errR + errG) - errB;
+        errRG *= csfChromaWeight;
+        errBY *= csfChromaWeight;
+        errR = errLum + 0.7513 * errRG + 0.0722 * errBY;
+        errG = errLum - 0.2487 * errRG + 0.0722 * errBY;
+        errB = errLum + 0.2513 * errRG - 0.9278 * errBY;
       }
 
       // Floyd-Steinberg 拡散
