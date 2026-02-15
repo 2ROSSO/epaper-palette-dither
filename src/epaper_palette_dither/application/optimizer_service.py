@@ -20,7 +20,11 @@ from epaper_palette_dither.application.dither_service import DitherService
 from epaper_palette_dither.application.image_converter import ImageConverter
 from epaper_palette_dither.application.reconvert_service import ReconvertService
 from epaper_palette_dither.infrastructure.image_io import resize_image
-from epaper_palette_dither.infrastructure.image_metrics import compute_composite_score
+from epaper_palette_dither.infrastructure.image_metrics import (
+    compute_composite_score,
+    compute_composite_score_cached,
+    precompute_reference,
+)
 
 
 @dataclass
@@ -159,6 +163,9 @@ class OptimizerService:
         converter = ImageConverter(DitherService(), palette)
         reconvert_service = ReconvertService()
 
+        # 参照画像の前処理を1回だけ実行（S-CIELAB CSF フィルタ等）
+        ref_cache = precompute_reference(reference)
+
         eval_count = 0
 
         def evaluate(params: dict[str, float]) -> float:
@@ -180,7 +187,7 @@ class OptimizerService:
                 brightness=_RECONVERT_BRIGHTNESS,
             )
 
-            metrics = compute_composite_score(reference, reconverted)
+            metrics = compute_composite_score_cached(ref_cache, reference, reconverted)
             return metrics["composite"]
 
         # Optuna Study

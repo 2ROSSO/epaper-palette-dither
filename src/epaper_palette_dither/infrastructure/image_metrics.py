@@ -1,13 +1,13 @@
 """画像品質メトリクス。
 
 PSNR, SSIM, Lab ΔE, Histogram Correlation, S-CIELAB の5指標と複合スコア。
-外部依存なし（NumPyのみ）。
 """
 
 from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+from scipy.ndimage import gaussian_filter1d
 
 from epaper_palette_dither.infrastructure.color_space import (
     rgb_to_lab_batch,
@@ -191,30 +191,14 @@ def _separable_gaussian_2d(
     channel: npt.NDArray[np.float64],
     sigma: float,
 ) -> npt.NDArray[np.float64]:
-    """分離型ガウシアンフィルタ（2D、単チャンネル）。"""
+    """分離型ガウシアンフィルタ（2D、単チャンネル）。
+
+    scipy の C 実装を使用して高速化。
+    """
     if sigma < 0.3:
         return channel.copy()
-    h, w = channel.shape
-    radius = min(int(np.ceil(3.0 * sigma)), max(h, w))
-    x = np.arange(-radius, radius + 1, dtype=np.float64)
-    kernel = np.exp(-0.5 * (x / sigma) ** 2)
-    kernel /= kernel.sum()
-    klen = len(kernel)
-
-    # Edge パディング
-    padded = np.pad(channel, radius, mode="edge")
-
-    # 水平方向畳み込み → (h+2r, w)
-    horiz = np.zeros((h + 2 * radius, w), dtype=np.float64)
-    for i in range(klen):
-        horiz += kernel[i] * padded[:, i:i + w]
-
-    # 垂直方向畳み込み → (h, w)
-    result = np.zeros((h, w), dtype=np.float64)
-    for i in range(klen):
-        result += kernel[i] * horiz[i:i + h, :]
-
-    return result
+    temp = gaussian_filter1d(channel, sigma, axis=1, mode="nearest")
+    return gaussian_filter1d(temp, sigma, axis=0, mode="nearest")
 
 
 def _apply_csf_filter(
@@ -265,6 +249,69 @@ def _xyz_to_lab_batch(xyz: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return np.stack([l_star, a_star, b_star], axis=-1)
 
 
+def _apply_csf_pipeline(
+    rgb_array: npt.NDArray[np.uint8],
+    pixels_per_degree: float,
+) -> npt.NDArray[np.float64]:
+    """RGB → XYZ → Opponent → CSF フィルタ → XYZ → Lab の変換パイプライン。
+
+    Args:
+        rgb_array: (H, W, 3) uint8
+        pixels_per_degree: 観視条件での角度あたりピクセル数
+
+    Returns:
+        CSF フィルタ適用済み Lab 配列 (H, W, 3) float64
+    """
+    xyz = _rgb_to_xyz_batch(rgb_array)
+    opp = np.tensordot(xyz, _OPP_FROM_XYZ.T, axes=([-1], [0]))
+
+    csf_params_list = [_CSF_A, _CSF_T, _CSF_D]
+    for ch in range(3):
+        opp[:, :, ch] = _apply_csf_filter(
+            opp[:, :, ch], csf_params_list[ch], pixels_per_degree,
+        )
+
+    xyz_filtered = np.tensordot(opp, _XYZ_FROM_OPP.T, axes=([-1], [0]))
+    return _xyz_to_lab_batch(xyz_filtered)
+
+
+def precompute_scielab_reference(
+    original: npt.NDArray[np.uint8],
+    pixels_per_degree: float = 40.0,
+) -> npt.NDArray[np.float64]:
+    """参照画像の CSF フィルタ済み Lab 配列を事前計算。
+
+    Args:
+        original: (H, W, 3) uint8
+        pixels_per_degree: 観視条件での角度あたりピクセル数
+
+    Returns:
+        CSF フィルタ適用済み Lab 配列 (H, W, 3) float64
+    """
+    return _apply_csf_pipeline(original, pixels_per_degree)
+
+
+def compute_scielab_delta_e_cached(
+    ref_lab_filtered: npt.NDArray[np.float64],
+    reconstructed: npt.NDArray[np.uint8],
+    pixels_per_degree: float = 40.0,
+) -> float:
+    """キャッシュ済み参照 Lab を使って S-CIELAB ΔE を算出。
+
+    Args:
+        ref_lab_filtered: precompute_scielab_reference の戻り値
+        reconstructed: (H, W, 3) uint8
+        pixels_per_degree: 観視条件での角度あたりピクセル数
+
+    Returns:
+        平均 S-CIELAB ΔE。低いほど良い。
+    """
+    lab_recon = _apply_csf_pipeline(reconstructed, pixels_per_degree)
+    diff = ref_lab_filtered - lab_recon
+    delta_e = np.sqrt(np.sum(diff * diff, axis=-1))
+    return float(np.mean(delta_e))
+
+
 def compute_scielab_delta_e(
     original: npt.NDArray[np.uint8],
     reconstructed: npt.NDArray[np.uint8],
@@ -285,54 +332,36 @@ def compute_scielab_delta_e(
     Returns:
         平均 S-CIELAB ΔE。低いほど良い。
     """
-    # 1. RGB → XYZ
-    xyz_orig = _rgb_to_xyz_batch(original)
-    xyz_recon = _rgb_to_xyz_batch(reconstructed)
-
-    # 2. XYZ → Opponent
-    h, w = original.shape[:2]
-    opp_orig = np.tensordot(xyz_orig, _OPP_FROM_XYZ.T, axes=([-1], [0]))
-    opp_recon = np.tensordot(xyz_recon, _OPP_FROM_XYZ.T, axes=([-1], [0]))
-
-    # 3. CSF フィルタ適用
-    csf_params_list = [_CSF_A, _CSF_T, _CSF_D]
-    for ch in range(3):
-        opp_orig[:, :, ch] = _apply_csf_filter(
-            opp_orig[:, :, ch], csf_params_list[ch], pixels_per_degree,
-        )
-        opp_recon[:, :, ch] = _apply_csf_filter(
-            opp_recon[:, :, ch], csf_params_list[ch], pixels_per_degree,
-        )
-
-    # 4. Opponent → XYZ → Lab
-    xyz_orig_f = np.tensordot(opp_orig, _XYZ_FROM_OPP.T, axes=([-1], [0]))
-    xyz_recon_f = np.tensordot(opp_recon, _XYZ_FROM_OPP.T, axes=([-1], [0]))
-    lab_orig = _xyz_to_lab_batch(xyz_orig_f)
-    lab_recon = _xyz_to_lab_batch(xyz_recon_f)
-
-    # 5. ΔE (CIE76)
-    diff = lab_orig - lab_recon
-    delta_e = np.sqrt(np.sum(diff * diff, axis=-1))
-    return float(np.mean(delta_e))
+    ref_lab = precompute_scielab_reference(original, pixels_per_degree)
+    return compute_scielab_delta_e_cached(ref_lab, reconstructed, pixels_per_degree)
 
 
-def compute_composite_score(
+def precompute_reference(
     original: npt.NDArray[np.uint8],
-    reconstructed: npt.NDArray[np.uint8],
-) -> dict[str, float]:
-    """5メトリクスと複合スコアをまとめて算出。
+    pixels_per_degree: float = 40.0,
+) -> dict[str, npt.NDArray[np.float64]]:
+    """参照画像の前処理結果をまとめて事前計算。
+
+    Args:
+        original: (H, W, 3) uint8
+        pixels_per_degree: S-CIELAB の観視条件
 
     Returns:
-        {"psnr": float, "ssim": float, "lab_de": float,
-         "hist_corr": float, "scielab_de": float, "composite": float}
+        {"scielab_ref_lab": CSF フィルタ済み Lab 配列}
     """
-    psnr = compute_psnr(original, reconstructed)
-    ssim = compute_ssim(original, reconstructed)
-    lab_de = compute_lab_delta_e_mean(original, reconstructed)
-    hist_corr = compute_histogram_correlation(original, reconstructed)
-    scielab_de = compute_scielab_delta_e(original, reconstructed)
+    return {
+        "scielab_ref_lab": precompute_scielab_reference(original, pixels_per_degree),
+    }
 
-    # 正規化 → 0-1
+
+def _compute_composite_from_metrics(
+    psnr: float,
+    ssim: float,
+    lab_de: float,
+    hist_corr: float,
+    scielab_de: float,
+) -> dict[str, float]:
+    """メトリクス値から正規化・複合スコアを算出。"""
     psnr_norm = float(np.clip(psnr / 50.0, 0.0, 1.0))
     ssim_norm = float(np.clip(ssim, 0.0, 1.0))
     lab_de_norm = float(np.clip(1.0 - lab_de / 30.0, 0.0, 1.0))
@@ -355,3 +384,49 @@ def compute_composite_score(
         "scielab_de": scielab_de,
         "composite": composite,
     }
+
+
+def compute_composite_score_cached(
+    ref_cache: dict[str, npt.NDArray[np.float64]],
+    original: npt.NDArray[np.uint8],
+    reconstructed: npt.NDArray[np.uint8],
+) -> dict[str, float]:
+    """キャッシュ済み参照データを使って全メトリクスと複合スコアを算出。
+
+    Args:
+        ref_cache: precompute_reference の戻り値
+        original: (H, W, 3) uint8 — PSNR/SSIM/Lab ΔE/Histogram 用
+        reconstructed: (H, W, 3) uint8
+
+    Returns:
+        {"psnr": float, "ssim": float, "lab_de": float,
+         "hist_corr": float, "scielab_de": float, "composite": float}
+    """
+    psnr = compute_psnr(original, reconstructed)
+    ssim = compute_ssim(original, reconstructed)
+    lab_de = compute_lab_delta_e_mean(original, reconstructed)
+    hist_corr = compute_histogram_correlation(original, reconstructed)
+    scielab_de = compute_scielab_delta_e_cached(
+        ref_cache["scielab_ref_lab"], reconstructed,
+    )
+
+    return _compute_composite_from_metrics(psnr, ssim, lab_de, hist_corr, scielab_de)
+
+
+def compute_composite_score(
+    original: npt.NDArray[np.uint8],
+    reconstructed: npt.NDArray[np.uint8],
+) -> dict[str, float]:
+    """5メトリクスと複合スコアをまとめて算出。
+
+    Returns:
+        {"psnr": float, "ssim": float, "lab_de": float,
+         "hist_corr": float, "scielab_de": float, "composite": float}
+    """
+    psnr = compute_psnr(original, reconstructed)
+    ssim = compute_ssim(original, reconstructed)
+    lab_de = compute_lab_delta_e_mean(original, reconstructed)
+    hist_corr = compute_histogram_correlation(original, reconstructed)
+    scielab_de = compute_scielab_delta_e(original, reconstructed)
+
+    return _compute_composite_from_metrics(psnr, ssim, lab_de, hist_corr, scielab_de)
