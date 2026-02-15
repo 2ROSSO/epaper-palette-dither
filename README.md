@@ -2,6 +2,9 @@
 
 電子ペーパー（4色E-Ink: 白・黒・赤・黄）向けに、通常の画像をFloyd-Steinbergディザリングで変換するGUIアプリケーション。
 
+> **💡 謝辞:**
+> 本プロジェクトは [Shapoco](https://github.com/shapoco) 氏の「[Arrayfy](https://shapoco.github.io/arrayfy/)」に触発されて開発を開始しました。素晴らしい先行作品に敬意を表し、開発のきっかけをいただいたことに感謝します。
+
 ## ターゲットデバイス
 
 **Santek EZ Sign NFC E-Paper Display（4色）**
