@@ -96,6 +96,7 @@ Optuna TPE (Tree-structured Parzen Estimator) により、Convert パラメー�
 - **探索対象**: カラーモードに応じた Convert パラメータのみ（Reconvert は blur=1, bright=1.0 固定）
 - **Trial 数**: Optimize ボタン右クリックで変更可能（25 / 50 / 100 / 200 / 500、初期値 50）
 - **初期値**: 現在の UI パラメータを初期候補として登録（step にスナップ）
+- **高速化**: S-CIELAB の Gaussian フィルタを scipy C 実装に置換し、参照画像の CSF フィルタ結果を trial 間でキャッシュ
 
 | ColorMode | 探索パラメータ数 | 探索対象 |
 |-----------|-----------------|----------|
@@ -137,6 +138,7 @@ Optimizer の評価関数に Zhang & Wandell (1997) の S-CIELAB を導入。XYZ
 - PyQt6 (GUI)
 - Pillow (画像I/O)
 - NumPy (数値計算)
+- SciPy (S-CIELAB Gaussian フィルタ高速化)
 - Optuna (パラメータ自動最適化)
 - pytest + pytest-qt (テスト)
 
@@ -162,7 +164,7 @@ src/epaper_palette_dither/
 │   ├── color_space.py        # sRGB⇔Linear, RGB⇔Lab バッチ変換
 │   ├── gamut_mapping.py      # Grayout, Anti-Saturation, Centroid Clip, Illuminant
 │   ├── image_io.py           # 画像読込/保存/リサイズ/回転
-│   ├── image_metrics.py      # PSNR, SSIM, Lab ΔE, S-CIELAB ΔE, Histogram Correlation, 複合スコア
+│   ├── image_metrics.py      # PSNR, SSIM, Lab ΔE, S-CIELAB ΔE(scipy高速化+参照キャッシュ), Histogram Correlation, 複合スコア
 │   ├── inverse_gamut_mapping.py  # Grayout/Illuminant の逆変換
 │   └── lightness_remap.py    # CLAHE 明度リマッピング（L*チャンネル適応的ヒストグラム均等化）
 └── presentation/         # プレゼンテーション層（PyQt6 GUI）
